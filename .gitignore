@@ -3,6 +3,8 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+
+maze_dataset/*
 # C extensions
 *.so
 stanford_cars/*
