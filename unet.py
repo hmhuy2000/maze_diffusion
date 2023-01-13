@@ -9,9 +9,11 @@ class Block(nn.Module):
         self.time_mlp =  nn.Linear(time_emb_dim, out_ch)
         if up:
             self.conv1 = nn.Conv2d(2*in_ch, out_ch, 3, padding=1)
+            # self.transform = nn.Upsample(scale_factor=2, mode='bilinear')
             self.transform = nn.ConvTranspose2d(out_ch, out_ch, 4, 2, 1)
         else:
             self.conv1 = nn.Conv2d(in_ch, out_ch, 3, padding=1)
+            # self.transform = nn.MaxPool2d(2)
             self.transform = nn.Conv2d(out_ch, out_ch, 4, 2, 1)
         self.conv2 = nn.Conv2d(out_ch, out_ch, 3, padding=1)
         self.bnorm1 = nn.BatchNorm2d(out_ch)
@@ -44,7 +46,8 @@ class SinusoidalPositionEmbeddings(nn.Module):
         embeddings = math.log(10000) / (half_dim - 1)
         embeddings = torch.exp(torch.arange(half_dim, device=device) * -embeddings)
         embeddings = time[:, None] * embeddings[None, :]
-        embeddings = torch.cat((embeddings.sin(), embeddings.cos()), dim=-1)
+        # embeddings = torch.cat((embeddings.sin(), embeddings.cos()), dim=-1)
+        embeddings = torch.cat((embeddings.cos(),embeddings.sin()), dim=-1)
         # TODO: Double check the ordering here
         return embeddings
 
@@ -55,10 +58,10 @@ class SimpleUnet(nn.Module):
     """
     def __init__(self):
         super().__init__()
-        image_channels = 3
-        down_channels = (64, 128, 256, 512, 1024)
-        up_channels = (1024, 512, 256, 128, 64)
-        out_dim = 1 
+        image_channels = 1
+        down_channels = (32, 64, 128,256,512)
+        up_channels = (512,256,128, 64,32)
+        out_dim = 1
         time_emb_dim = 32
 
         # Time embedding
@@ -80,7 +83,7 @@ class SimpleUnet(nn.Module):
                                         time_emb_dim, up=True) \
                     for i in range(len(up_channels)-1)])
 
-        self.output = nn.Conv2d(up_channels[-1], 3, out_dim)
+        self.output = nn.Conv2d(up_channels[-1], out_dim, 1)
 
     def forward(self, x, timestep):
         # Embedd time
@@ -97,5 +100,6 @@ class SimpleUnet(nn.Module):
             # Add residual x as additional channels
             x = torch.cat((x, residual_x), dim=1)           
             x = up(x, t)
-        return self.output(x)
+        x = self.output(x)
+        return x
 

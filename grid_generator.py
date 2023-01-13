@@ -18,21 +18,20 @@ def padding(img,img_size):
         toggle = 1 - toggle
     return img
 
-def create_border(grid):
-    grid[:,0] = 156
-    grid[:,-1] = 156
-    grid[0,:] = 156
-    grid[-1,:] = 156
+def create_empty_grid(grid_size,scale=3):
+    grid = np.zeros((grid_size*scale,grid_size*scale),dtype=np.uint8)
+    grid[:,0:scale] = 200
+    grid[:,-scale:] = 200
+    grid[0:scale,:] = 200
+    grid[-scale:,:] = 200
 
     return grid
 
-def main(grid_size,target_image_size):
-    grid = np.zeros((grid_size,grid_size),dtype=np.uint8)
-    grid = create_border(grid)
-
-    im = Image.fromarray(padding(grid,target_image_size))
-    im.save(f"test_figs/grid_{grid_size}.jpg")
+def main(grid_size):
+    grid = create_empty_grid(grid_size)
+    im = Image.fromarray(grid)
+    im.save(f"test_figs/empty_{grid_size}.png")
 
 if __name__ == '__main__':
-    for size in [16,32,64,128,256,512]:
-        main(grid_size=size,target_image_size=size)
+    for size in [16]:
+        main(grid_size=size)
