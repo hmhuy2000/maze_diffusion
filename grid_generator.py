@@ -19,10 +19,10 @@ def create_random_room(old_grid):
     posX,posY = None,None
 
     list_position_prompts = [
-        'add a in the top left',
-        'add a in the top right',
-        'add a in the bottom left',
-        'add a in the bottom right',
+        'add a room in the top left',
+        'add a room in the top right',
+        'add a room in the bottom left',
+        'add a room in the bottom right',
     ]
     position_promt = np.random.choice(range(len(list_position_prompts)))
     if position_promt == 0:
@@ -80,7 +80,7 @@ def main(grid_size):
             if (list_file[idx] == f'{root}/0000000.png'):
                 list_file.pop(idx)
                 break
-        for time in trange(10000):
+        for time in trange(100000):
             random_file = np.random.choice(list_file)
             grid = np.asarray(Image.open(random_file))
             new_grid, promt = create_random_room(grid)

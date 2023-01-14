@@ -7,6 +7,8 @@ from torch.utils.data import DataLoader, Dataset
 import numpy as np
 import os
 from PIL import Image
+from tokenizer.bpe import get_encoder
+
 
 
 def show_images(datset, num_samples=20, cols=4):
@@ -63,19 +65,39 @@ BATCH_SIZE = 512
 
 class grid_dataset(Dataset):
 
-    def __init__(self, root_dir, transform=None):
+    def __init__(self, root_dir,csv_file, transform=None):
         self.root_dir = root_dir
+        self.csv_file = open(csv_file,'r').readlines()
         self.transform = transform
-        self.len = 128 * 1000
+        self.tokenizer = get_encoder()
 
     def __len__(self):
-        return self.len
+        return len(self.csv_file)
 
     def __getitem__(self, idx):
-        img = Image.open(f'test_figs/grid_{IMG_SIZE}.png')
+        line = self.csv_file[idx].replace('\n','').split(',')
+
+        input_image = np.asarray(Image.open(f'{self.root_dir}/{line[0]}'))
+        promt = line[1]
+        output_image = np.asarray(Image.open(f'{self.root_dir}/{line[2]}'))
+
+        promt = self.tokenizer.encode(promt)
+        promt, mask = self.tokenizer.padded_tokens_and_mask(promt, 64)
+        promt = torch.tensor(promt)
+
+        grid_size = input_image.shape[0]
+        new_input_image = np.zeros((grid_size*3,grid_size*3),dtype=np.uint8)
+        new_out_image = np.zeros((grid_size*3,grid_size*3),dtype=np.uint8)
+        for x in range(grid_size):
+            for y in range(grid_size):
+                new_input_image[x*3:x*3+3,y*3:y*3+3] = input_image[x,y]
+                new_out_image[x*3:x*3+3,y*3:y*3+3] = output_image[x,y]
+
         if self.transform:
-            img = self.transform(img)
-        return img
+            new_input_image = self.transform(new_input_image)
+            new_out_image = self.transform(new_out_image)
+        
+        return (new_input_image,promt,new_out_image,line[1])
 
 def load_transformed_dataset():
     data_transforms = [
@@ -84,13 +106,11 @@ def load_transformed_dataset():
     ]
     data_transform = transforms.Compose(data_transforms)
 
-    train = grid_dataset(root_dir=".",
+    train = grid_dataset(root_dir="./maze_dataset",csv_file='dataset.csv',
                             transform=data_transform)
-    test = grid_dataset(root_dir=".",
-                            transform=data_transform)
-    return torch.utils.data.ConcatDataset([train, test])
+    return train
 
-def show_tensor_image(image,t,num_show=0,pos=0,loss=None):
+def show_tensor_image(prev,promt,image,t,num_show=0,pos=0):
     image = image.clamp(min=-1,max=1)
     reverse_transforms = transforms.Compose([
         transforms.Lambda(lambda t: (t + 1) / 2),
@@ -103,15 +123,25 @@ def show_tensor_image(image,t,num_show=0,pos=0,loss=None):
     if len(image.shape) == 4:
         image = image[0, :, :, :] 
     image = reverse_transforms(image)
-    
-    plt.subplot(2, num_show, pos)
-    if (t is not None and loss is not None):
-        plt.title(f'x_{t.item()},loss={loss:.5f}',fontsize=60)
-    plt.axis('off')
-    plt.imshow(image,cmap='gray',vmin=0,vmax=255)
 
-    image = image.point(lambda x: 200 if x>=180 else 0)
-    plt.subplot(2, num_show, pos+num_show)
-    plt.axis('off')
-    plt.imshow(image,cmap='gray',vmin=0,vmax=255)
+    plt.subplot(2, num_show, pos)
+    if (prev is not None):
+        prev = reverse_transforms(prev)
+        plt.title(f'promt: {promt}',fontsize=30)
+        plt.axis('off')
+
+        plt.subplot(2, num_show, pos+num_show)
+        plt.axis('off')
+        plt.imshow(prev,cmap='gray',vmin=0,vmax=255)
+        plt.title(f'previous state',fontsize=60)
+
+    else:
+        plt.title(f'x_{t.item()}',fontsize=50)
+        plt.imshow(image,cmap='gray',vmin=0,vmax=255)
+        plt.axis('off')
+
+        image = image.point(lambda x: 200 if x>=180 else 0)
+        plt.subplot(2, num_show, pos+num_show)
+        plt.axis('off')
+        plt.imshow(image,cmap='gray',vmin=0,vmax=255)
 

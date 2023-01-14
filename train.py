@@ -20,23 +20,23 @@ from unet import *
 #-------------------------------------------------------#
 
 data = load_transformed_dataset()
+print(f'dataset have {data.__len__()} samples')
 dataloader = DataLoader(data, batch_size=BATCH_SIZE, shuffle=True, drop_last=True)
 device = "cuda" if torch.cuda.is_available() else "cpu"
 epochs = 1000 
 log_file = open("logs.csv", "w")
 #-------------------------------------------------------#
-# Simulate forward diffusion
 
-# image = next(iter(dataloader))[0]
+# input_image,promt,output_image = next(iter(dataloader))
 
 # plt.figure(figsize=(100,20))
 # plt.axis('off')
 # num_images = 10
 # stepsize = int(T/num_images)
+# image = output_image
 
 # for idx in range(0, T, stepsize):
 #     t = torch.Tensor([idx]).type(torch.int64)
-#     # plt.subplot(1, num_images+1, (idx//stepsize) + 1)
 #     image, noise = forward_diffusion_sample(image, t)
 #     show_tensor_image(image,t,num_show=num_images,pos=idx//stepsize+1)
 #     plt.title(f'x_{t.item()}')
@@ -46,17 +46,16 @@ log_file = open("logs.csv", "w")
 #-------------------------------------------------------#
 model = SimpleUnet()
 print("Num params: ", sum(p.numel() for p in model.parameters()))
-
 #-------------------------------------------------------#
 
-def get_loss(model, x_0, t):
+def get_loss(model,prev, promt, x_0, t):
     x_noisy, noise = forward_diffusion_sample(x_0, t, device)
-    noise_pred = model(x_noisy, t)
+    noise_pred = model(prev,promt,x_noisy,t)
     return F.l1_loss(noise, noise_pred)
     # return F.mse_loss(noise, noise_pred)
 
 @torch.no_grad()
-def sample_timestep(x, t):
+def sample_timestep(prev,promt,x, t):
     """
     Calls the model to predict the noise in the image and returns 
     the denoised image. 
@@ -70,7 +69,7 @@ def sample_timestep(x, t):
     
     # Call model (current image - noise prediction)
     model_mean = sqrt_recip_alphas_t * (
-        x - betas_t * model(x, t) / sqrt_one_minus_alphas_cumprod_t
+        x - betas_t * model(prev,promt,x, t) / sqrt_one_minus_alphas_cumprod_t
     )
     posterior_variance_t = get_index_from_list(posterior_variance, t, x.shape)
     
@@ -81,47 +80,51 @@ def sample_timestep(x, t):
         return model_mean + torch.sqrt(posterior_variance_t) * noise 
 
 @torch.no_grad()
-def sample_plot_image(epoch, batch):
+def sample_plot_image(epoch, prev,promt,image,text):
     # Sample noise
     img_size = IMG_SIZE
     img = torch.randn((1, 1, img_size, img_size), device=device)
     plt.figure(figsize=(100,20))
     num_images = 10
     stepsize = int(T/num_images)
-    show_tensor_image(batch[0].detach().cpu(),None,num_images+1, 1)
+    show_tensor_image(prev[0].detach().cpu(),text[0],image[0].detach().cpu(),None,num_images+1, 1)
 
     for i in range(0,T)[::-1]:
         t = torch.full((1,), i, device=device, dtype=torch.long)
-        img = sample_timestep(img, t)
-        mse_loss = F.mse_loss(batch[0],img.detach().cpu())
+        img = sample_timestep(prev[0].unsqueeze(dim=0),promt[0].unsqueeze(dim=0),img, t)
         if i % stepsize == 0:
-            show_tensor_image(img.detach().cpu(),t,num_images+1, i//stepsize+2,mse_loss)
+            show_tensor_image(None,text[0],img.detach().cpu(),t,num_images+1, i//stepsize+2)
     plt.tight_layout()
     plt.savefig(f'figures/result_{epoch}.png')         
 
 #-------------------------------------------------------#
 
 model.to(device)
-optimizer = Adam(model.parameters(), lr=0.001)
+optimizer = Adam(model.parameters(), lr=0.0001)
 
 for epoch in range(epochs):
-    for step, batch in tqdm(enumerate(dataloader)):
-      optimizer.zero_grad()
-      
-      t = torch.randint(0, T, (BATCH_SIZE,), device=device).long()
-      loss = get_loss(model, batch, t)
-      loss.backward()
-      optimizer.step()
-      if (step == 0):
-        print(f'epoch {epoch}:',loss.item())
+    pbar = tqdm(enumerate(dataloader))
+    for step, batch in pbar:
+        prevs,promts,images,text = batch
+        prevs = prevs.cuda()
+        promts = promts.cuda()
+        images = images.cuda()
+        optimizer.zero_grad()
+        
+        t = torch.randint(0, T, (BATCH_SIZE,), device=device).long()
+        loss = get_loss(model,prevs,promts, images, t)
+        loss.backward()
+        optimizer.step()
+        if (step %50 == 0):
+            pbar.set_description(f'epoch {epoch}: {loss.item()}')
 
-      if epoch%1 == 0 and step == 0:
-        log_file.write(f'{epoch},{loss:.5f}\n')
-        log_file.flush()        
-        save_path = f'pretrained/{epoch}.pt'
-        torch.save(model.state_dict(), save_path)
-        model.load_state_dict(torch.load(save_path))
-        sample_plot_image(epoch, batch)
+        if epoch%1 == 0 and step == 0:
+            log_file.write(f'{epoch},{loss:.5f}\n')
+            log_file.flush()        
+            save_path = f'pretrained/{epoch}.pt'
+            torch.save(model.state_dict(), save_path)
+            model.load_state_dict(torch.load(save_path))
+            sample_plot_image(epoch, prevs,promts,images,text)
     
 
 log_file.close()
