@@ -19,34 +19,34 @@ def create_random_room(old_grid):
     posX,posY = None,None
 
     list_position_prompts = [
-        'add a room in the top left',
-        'add a room in the top right',
-        'add a room in the bottom left',
-        'add a room in the bottom right',
+        'Add a room in the top left',
+        'Add a room in the top right',
+        'Add a room in the bottom left',
+        'Add a room in the bottom right',
     ]
     position_promt = np.random.choice(range(len(list_position_prompts)))
     if position_promt == 0:
-        posX = np.random.randint(low=0,high=grid_size//2)
-        posY = np.random.randint(low=0,high=grid_size//2)
+        posX = np.random.randint(low=1,high=grid_size//2)
+        posY = np.random.randint(low=1,high=grid_size//2)
     elif position_promt == 1:
-        posX = np.random.randint(low=0,high=grid_size//2)
-        posY = np.random.randint(low=grid_size//2,high=grid_size)
+        posX = np.random.randint(low=1,high=grid_size//2)
+        posY = np.random.randint(low=grid_size//2,high=grid_size-1)
     elif position_promt == 2:
-        posX = np.random.randint(low=grid_size//2,high=grid_size)
-        posY = np.random.randint(low=0,high=grid_size//2)
+        posX = np.random.randint(low=grid_size//2,high=grid_size-1)
+        posY = np.random.randint(low=1,high=grid_size//2)
     elif position_promt == 3:
-        posX = np.random.randint(low=grid_size//2,high=grid_size)
-        posY = np.random.randint(low=grid_size//2,high=grid_size)
+        posX = np.random.randint(low=grid_size//2,high=grid_size-1)
+        posY = np.random.randint(low=grid_size//2,high=grid_size-1)
 
     #---------------------------------------------------------#        
-    size = np.random.randint(low=1,high=grid_size//2)
+    size = np.random.randint(low=1,high=5)
     #---------------------------------------------------------#        
     for x in range(grid_size):
         for y in range(grid_size):
             if (abs(x-posX)+abs(y-posY)==size):
                 grid[x,y] = WALL_VALUE
 
-    final_promt = list_position_prompts[position_promt] + f' with size {size}.'
+    final_promt = list_position_prompts[position_promt] + f' with size {size}'
     return grid,final_promt
 
 def create_empty_grid(grid):
@@ -71,7 +71,7 @@ def main(grid_size):
     current_id = 0
     grid = np.zeros((grid_size,grid_size),dtype=np.uint8)
     current_id = save_grid(grid,current_id)
-    csv_file.write(f'0000000.png,initialize grid.,0000001.png\n')
+    csv_file.write(f'0000000.png,Initialize grid,0000001.png\n')
     grid = create_empty_grid(grid)
     current_id = save_grid(grid,current_id)
     for loop in range(1):

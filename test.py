@@ -1,6 +1,6 @@
 
 from sentence_transformers import SentenceTransformer
-model = SentenceTransformer('all-MiniLM-L6-v2')
+model = SentenceTransformer('all-MiniLM-L6-v2').cuda()
 model.train()
 
 #Our sentences we like to encode

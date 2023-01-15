@@ -27,7 +27,7 @@ data = load_transformed_dataset()
 print(f'dataset have {data.__len__()} samples')
 dataloader = DataLoader(data, batch_size=BATCH_SIZE, shuffle=True, drop_last=True)
 device = "cuda" if torch.cuda.is_available() else "cpu"
-epochs = 100 
+epochs = 1000
 log_file = open("logs.csv", "w")
 create_dir('figures')
 create_dir('pretrained')
@@ -50,8 +50,7 @@ create_dir('pretrained')
 # plt.savefig('figures/show_tensor_image.jpg')
 # exit()
 #-------------------------------------------------------#
-model = SimpleUnet()
-print("Num params: ", sum(p.numel() for p in model.parameters()))
+model = SimpleUnet(device=device)
 #-------------------------------------------------------#
 
 def get_loss(model,prev, promt, x_0, t):
@@ -97,7 +96,7 @@ def sample_plot_image(epoch, prev,promt,image,text):
 
     for i in range(0,T)[::-1]:
         t = torch.full((1,), i, device=device, dtype=torch.long)
-        img = sample_timestep(prev[0].unsqueeze(dim=0),promt[0].unsqueeze(dim=0),img, t)
+        img = sample_timestep(prev[0].unsqueeze(dim=0),[promt[0]],img, t)
         if i % stepsize == 0:
             show_tensor_image(None,text[0],img.detach().cpu(),t,num_images+1, i//stepsize+2)
     plt.tight_layout()
@@ -106,14 +105,22 @@ def sample_plot_image(epoch, prev,promt,image,text):
 #-------------------------------------------------------#
 
 model.to(device)
+model.train()
 optimizer = Adam(model.parameters(), lr=0.0001)
+print('freeze setence transformer')
+for param in model.text0.parameters():
+    param.requires_grad = False
 
 for epoch in range(epochs):
     pbar = tqdm(enumerate(dataloader))
+    if (epoch == 5):
+        print('unfreeze setence transformer')
+        for param in model.text0.parameters():
+            param.requires_grad = True
+
     for step, batch in pbar:
         prevs,promts,images,text = batch
         prevs = prevs.cuda()
-        promts = promts.cuda()
         images = images.cuda()
         optimizer.zero_grad()
         
@@ -122,9 +129,9 @@ for epoch in range(epochs):
         loss.backward()
         optimizer.step()
         if (step %50 == 0):
-            pbar.set_description(f'epoch {epoch}: {loss.item()}')
+            pbar.set_description(f'epoch = {epoch}, train params = {sum(p.numel() for p in model.parameters() if p.requires_grad)}, loss = {loss.item()}')
 
-        if epoch%1 == 0 and step == 0:
+        if epoch%5 == 0 and step == 0:
             log_file.write(f'{epoch},{loss:.5f}\n')
             log_file.flush()      
             

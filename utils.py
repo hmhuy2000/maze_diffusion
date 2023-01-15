@@ -75,8 +75,8 @@ class grid_dataset(Dataset):
         return len(self.csv_file)
 
     def __getitem__(self, idx):
-        if (idx == 0 or idx >5):
-            idx = np.random.randint(1,6)
+        # if (idx == 0 or idx >5):
+        #     idx = np.random.randint(1,6)
 
         line = self.csv_file[idx].replace('\n','').split(',')
 
@@ -84,9 +84,9 @@ class grid_dataset(Dataset):
         promt = line[1]
         output_image = np.asarray(Image.open(f'{self.root_dir}/{line[2]}'))
 
-        promt = self.tokenizer.encode(promt)
-        promt, mask = self.tokenizer.padded_tokens_and_mask(promt, 64)
-        promt = torch.tensor(promt)
+        # promt = self.tokenizer.encode(promt)
+        # promt, mask = self.tokenizer.padded_tokens_and_mask(promt, 64)
+        # promt = torch.tensor(promt)
 
         grid_size = input_image.shape[0]
         new_input_image = np.zeros((grid_size*3,grid_size*3),dtype=np.uint8)

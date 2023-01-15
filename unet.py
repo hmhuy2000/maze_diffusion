@@ -2,6 +2,7 @@ from torch import nn
 import math
 import torch
 import torchvision
+from sentence_transformers import SentenceTransformer
 
 class Block(nn.Module):
     def __init__(self, in_ch, out_ch, time_emb_dim,text_emb_dim=None, up=False,prev_up=False):
@@ -70,14 +71,15 @@ class SimpleUnet(nn.Module):
     """
     A simplified variant of the Unet architecture.
     """
-    def __init__(self):
+    def __init__(self,device):
         super().__init__()
+        self.device = device
         image_channels = 1
         down_channels = (64,128,256,512,1024)
         up_channels = (1024,512,256,128, 64)
         out_dim = 1
         time_emb_dim = 32
-        text_emb_dim = 128
+        text_emb_dim = 384
 
         # Time embedding
         self.time_mlp = nn.Sequential(
@@ -86,15 +88,7 @@ class SimpleUnet(nn.Module):
                 nn.ReLU()
             )
         
-        self.text0 = nn.Sequential(
-            nn.Embedding(
-            num_embeddings=50257,
-            embedding_dim=64,
-        ),
-        nn.Flatten(),
-        nn.Linear(64*64, text_emb_dim),
-        nn.ReLU(),
-        )
+        self.text0 = SentenceTransformer('all-MiniLM-L6-v2')
 
         # Initial projection
         self.conv0 = nn.Conv2d(image_channels, down_channels[0], 3, padding=1)
@@ -118,8 +112,9 @@ class SimpleUnet(nn.Module):
     def forward(self,prev, promt, x, timestep):
         # Embedd time
         t = self.time_mlp(timestep)
-        promt = self.text0(promt)
 
+        # promt = self.text0.encode(promt,convert_to_tensor=True,device=self.device)
+        promt = self.text0.get_embedding(promt,self.device)
         # Initial conv
         x = self.conv0(x)
         prev = self.prev_conv0(prev)
