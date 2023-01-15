@@ -13,7 +13,11 @@ import matplotlib.pyplot as plt
 from torch.optim import Adam
 from tqdm import trange,tqdm
 
-
+def create_dir(name):
+    try:
+        os.mkdir(name)
+    except:
+        print(f'warning: {name} existed!')
 #-------------------------------------------------------#
 from utils import *
 from unet import *
@@ -23,8 +27,10 @@ data = load_transformed_dataset()
 print(f'dataset have {data.__len__()} samples')
 dataloader = DataLoader(data, batch_size=BATCH_SIZE, shuffle=True, drop_last=True)
 device = "cuda" if torch.cuda.is_available() else "cpu"
-epochs = 1000 
+epochs = 100 
 log_file = open("logs.csv", "w")
+create_dir('figures')
+create_dir('pretrained')
 #-------------------------------------------------------#
 
 # input_image,promt,output_image = next(iter(dataloader))
@@ -120,7 +126,8 @@ for epoch in range(epochs):
 
         if epoch%1 == 0 and step == 0:
             log_file.write(f'{epoch},{loss:.5f}\n')
-            log_file.flush()        
+            log_file.flush()      
+            
             save_path = f'pretrained/{epoch}.pt'
             torch.save(model.state_dict(), save_path)
             model.load_state_dict(torch.load(save_path))

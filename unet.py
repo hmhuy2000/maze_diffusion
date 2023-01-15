@@ -4,22 +4,24 @@ import torch
 import torchvision
 
 class Block(nn.Module):
-    def __init__(self, in_ch, out_ch, time_emb_dim,text_emb_dim=None, up=False):
+    def __init__(self, in_ch, out_ch, time_emb_dim,text_emb_dim=None, up=False,prev_up=False):
         super().__init__()
         self.text_emb_dim = text_emb_dim
         self.time_mlp =  nn.Linear(time_emb_dim, out_ch)
         if (text_emb_dim):
-            self.text_mlp =  nn.Linear(text_emb_dim, in_ch)
+            self.text_mlp =  nn.Linear(text_emb_dim, 32)
         if up:
             intput_dim = 3*in_ch
             if (text_emb_dim):
-                intput_dim += in_ch
+                intput_dim += 32
             self.conv1 = nn.Conv2d(intput_dim, out_ch, 3, padding=1)
             self.transform = nn.ConvTranspose2d(out_ch, out_ch, 4, 2, 1)
         else:
             intput_dim = in_ch
+            if (prev_up==False):
+                intput_dim *= 2
             if (text_emb_dim):
-                intput_dim += in_ch
+                intput_dim += 32
             self.conv1 = nn.Conv2d(intput_dim, out_ch, 3, padding=1)
             self.transform = nn.Conv2d(out_ch, out_ch, 4, 2, 1)
         self.conv2 = nn.Conv2d(out_ch, out_ch, 3, padding=1)
@@ -71,8 +73,8 @@ class SimpleUnet(nn.Module):
     def __init__(self):
         super().__init__()
         image_channels = 1
-        down_channels = (32, 64, 128,256,512)
-        up_channels = (512,256,128, 64,32)
+        down_channels = (64,128,256,512,1024)
+        up_channels = (1024,512,256,128, 64)
         out_dim = 1
         time_emb_dim = 32
         text_emb_dim = 128
@@ -100,7 +102,7 @@ class SimpleUnet(nn.Module):
 
         # Downsample
         self.prev_downs = nn.ModuleList([Block(down_channels[i], down_channels[i+1], \
-                                    time_emb_dim) \
+                                    time_emb_dim,prev_up=True) \
                     for i in range(len(down_channels)-1)])
 
         self.downs = nn.ModuleList([Block(down_channels[i], down_channels[i+1], \
@@ -124,21 +126,22 @@ class SimpleUnet(nn.Module):
 
         # Unet
         residual_inputs = []
-        for down in self.downs:
-            x = down(x, t,promt)
-            residual_inputs.append(x)
-
         prev_residual_inputs = []
-        for down in self.prev_downs:
-            prev = down(prev,t)
+        for (down,prev_down) in zip(self.downs,self.prev_downs):
+            x = torch.cat((x, prev), dim=1)   
+            x = down(x, t,promt)
+            prev = prev_down(prev,t)
+
+            residual_inputs.append(x)
             prev_residual_inputs.append(prev)
 
         for up in self.ups:
             residual_x = residual_inputs.pop()
             prev_residual_x = prev_residual_inputs.pop()
-            # Add residual x as additional channels
+
             x = torch.cat((x, residual_x,prev_residual_x), dim=1)           
             x = up(x, t,promt)
+
         x = self.output(x)
         return x
 

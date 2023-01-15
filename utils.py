@@ -61,7 +61,7 @@ sqrt_one_minus_alphas_cumprod = torch.sqrt(1. - alphas_cumprod)
 posterior_variance = betas * (1. - alphas_cumprod_prev) / (1. - alphas_cumprod)
 
 IMG_SIZE = 48
-BATCH_SIZE = 512
+BATCH_SIZE = 256
 
 class grid_dataset(Dataset):
 
@@ -75,6 +75,9 @@ class grid_dataset(Dataset):
         return len(self.csv_file)
 
     def __getitem__(self, idx):
+        if (idx == 0 or idx >5):
+            idx = np.random.randint(1,6)
+
         line = self.csv_file[idx].replace('\n','').split(',')
 
         input_image = np.asarray(Image.open(f'{self.root_dir}/{line[0]}'))
@@ -127,13 +130,14 @@ def show_tensor_image(prev,promt,image,t,num_show=0,pos=0):
     plt.subplot(2, num_show, pos)
     if (prev is not None):
         prev = reverse_transforms(prev)
-        plt.title(f'promt: {promt}',fontsize=30)
-        plt.axis('off')
-
-        plt.subplot(2, num_show, pos+num_show)
         plt.axis('off')
         plt.imshow(prev,cmap='gray',vmin=0,vmax=255)
         plt.title(f'previous state',fontsize=60)
+
+        plt.subplot(2, num_show, pos+num_show)
+        plt.imshow(image,cmap='gray',vmin=0,vmax=255)
+        plt.title(f'promt: {promt}',fontsize=30)
+        plt.axis('off')
 
     else:
         plt.title(f'x_{t.item()}',fontsize=50)
