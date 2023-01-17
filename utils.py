@@ -140,4 +140,3 @@ def show_tensor_image(prev,promt,image,t,num_show=0,pos=0):
         plt.subplot(2, num_show, pos+num_show)
         plt.axis('off')
         plt.imshow(image,cmap='gray',vmin=0,vmax=255)
-

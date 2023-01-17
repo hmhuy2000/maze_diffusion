@@ -3,19 +3,50 @@ print(f'Number of CPUs: {psutil.cpu_count()}')
 p = psutil.Process()
 
 arr_cpus = [i for i in range(50,60)]
-figure_path = 'figures_guidance'
-pretrained_path = 'pretrained_guidance'
+exp_name = 'new_guidance'
+figure_path = f'figures/{exp_name}'
+pretrained_path = f'pretrained/{exp_name}'
 
 p.cpu_affinity(arr_cpus)
 print(f'CPU pool after assignment ({len(arr_cpus)}): {p.cpu_affinity()}')
 import warnings
 warnings.filterwarnings("ignore")
+
+#-------------------------------------------------------#
+
+comd = [
+    'Initialize grid',
+
+    'Add a room in the top left with size 1',
+    'Add a room in the top left with size 2',
+    'Add a room in the top left with size 3',
+    'Add a room in the top left with size 4',
+
+    'Add a room in the top right with size 1',
+    'Add a room in the top right with size 2',
+    'Add a room in the top right with size 3',
+    'Add a room in the top right with size 4',
+
+    'Add a room in the bottom left with size 1',
+    'Add a room in the bottom left with size 2',
+    'Add a room in the bottom left with size 3',
+    'Add a room in the bottom left with size 4',
+
+    'Add a room in the bottom right with size 1',
+    'Add a room in the bottom right with size 2',
+    'Add a room in the bottom right with size 3',
+    'Add a room in the bottom right with size 4',
+]
+
 #-------------------------------------------------------#
 import torch
 import torchvision
 import matplotlib.pyplot as plt
 from torch.optim import Adam
 from tqdm import trange,tqdm
+import seaborn as sns
+from torch.optim.lr_scheduler import CosineAnnealingLR
+
 
 def create_dir(name):
     try:
@@ -27,21 +58,25 @@ from utils import *
 from unet import *
 #-------------------------------------------------------#
 
-data_train = load_transformed_dataset(root_dir='./maze_train',csv_file='dataset_train.csv')
-print(f'dataset have {data_train.__len__()} samples')
+data_train = load_transformed_dataset(root_dir='./dataset/maze_train',csv_file='./dataset/dataset_train.csv')
+data_valid = load_transformed_dataset(root_dir='./dataset/maze_valid',csv_file='./dataset/dataset_valid.csv')
+print(f'train dataset have {data_train.__len__()} samples')
+print(f'valid dataset have {data_valid.__len__()} samples')
 dataloader = DataLoader(data_train, batch_size=BATCH_SIZE, shuffle=True, drop_last=True)
+valid_dataloader = DataLoader(data_valid, batch_size=BATCH_SIZE, shuffle=True, drop_last=True)
 device = "cuda" if torch.cuda.is_available() else "cpu"
 epochs = 1000
-log_file = open("logs_guidance.csv", "a")
-log_file.write('\n--------------------------------\n')
+log_file = open(f"logs/{exp_name}.csv", "a")
+log_file.write('epoch,train_loss,valid_loss,valid_no_guidance_loss\n')
 create_dir(figure_path)
 create_dir(pretrained_path)
 #-------------------------------------------------------#
 
 #-------------------------------------------------------#
 model = SimpleUnet(device=device)
+print(f'total model parameter: {sum(p.numel() for p in model.parameters())}')
 print('load sentence_embedding_model pretrained')
-model.text0.load_state_dict(torch.load('valid_sentence_embedding_model.pt'))
+model.text0.load_state_dict(torch.load('./pretrained/new_setence_embedding/valid_sentence_embedding_model.pt'))
 #-------------------------------------------------------#
 
 def get_loss(model,prev, promt, x_0, t):
@@ -79,36 +114,40 @@ def sample_timestep(prev,promt,x, t):
 def sample_plot_image(epoch, prev,promt,image,text):
     # Sample noise
     img_size = IMG_SIZE
-    img = torch.randn((1, 1, img_size, img_size), device=device)
-    plt.figure(figsize=(100,20))
-    num_images = 10
-    stepsize = int(T/num_images)
-    show_tensor_image(prev[0].detach().cpu(),text[0],image[0].detach().cpu(),None,num_images+1, 1)
+    for idx in range(5):
+        img = torch.randn((1, 1, img_size, img_size), device=device)
+        plt.figure(figsize=(100,20))
+        plt.clf()
+        num_images = 10
+        stepsize = int(T/num_images)
+        show_tensor_image(prev[idx].detach().cpu(),text[idx],image[idx].detach().cpu(),None,num_images+1, 1)
 
-    for i in range(0,T)[::-1]:
-        t = torch.full((1,), i, device=device, dtype=torch.long)
-        img = sample_timestep(prev[0].unsqueeze(dim=0),[promt[0]],img, t)
-        if i % stepsize == 0:
-            show_tensor_image(None,text[0],img.detach().cpu(),t,num_images+1, i//stepsize+2)
-    plt.tight_layout()
-    plt.savefig(f'{figure_path}/result_{epoch}.png')         
+        for i in range(0,T)[::-1]:
+            t = torch.full((1,), i, device=device, dtype=torch.long)
+            img = sample_timestep(prev[idx].unsqueeze(dim=0),[promt[idx]],img, t)
+            if i % stepsize == 0:
+                show_tensor_image(None,text[idx],img.detach().cpu(),t,num_images+1, i//stepsize+2)
+        plt.tight_layout()
+        plt.savefig(f'{figure_path}/result_{epoch}/{idx}.png')         
+
 
 #-------------------------------------------------------#
 
 model.to(device)
 model.train()
-optimizer = Adam(model.parameters(), lr=0.0001)
+optimizer = Adam(model.parameters(), lr=0.001)
+scheduler = CosineAnnealingLR(optimizer,T_max=100,eta_min=1e-4)
 print('freeze setence transformer')
 for param in model.text0.parameters():
     param.requires_grad = False
-
+best_val_loss = np.inf
 for epoch in range(epochs):
     pbar = tqdm(enumerate(dataloader))
-    if (epoch == 50):
+    if (epoch == 100):
         print('\nunfreeze setence transformer')
         for param in model.text0.parameters():
             param.requires_grad = True
-
+    total_train_loss = []
     for step, batch in pbar:
         prevs,promts,images,text = batch
         prevs = prevs.cuda()
@@ -117,20 +156,58 @@ for epoch in range(epochs):
         
         t = torch.randint(0, T, (BATCH_SIZE,), device=device).long()
         loss = get_loss(model,prevs,promts, images, t)
+        total_train_loss.append(loss.detach().item())
         loss.backward()
         optimizer.step()
         if (step %10 == 0):
-            pbar.set_description(f'epoch = {epoch}, train params = {sum(p.numel() for p in model.parameters() if p.requires_grad)}, loss = {loss.item()}')
-
-        if epoch%10 == 0 and step == 0:
-            log_file.write(f'{epoch},{loss:.5f}\n')
-            log_file.flush()      
+            pbar.set_description(f'[Train] epoch = {epoch}, learning rate = {optimizer.param_groups[0]["lr"]:.5f}'+
+            f', loss = {np.mean(total_train_loss):.7f}')
+    scheduler.step()
+    pbar = tqdm(enumerate(valid_dataloader))
+    total_valid_loss = []
+    total_valid_guidance_free = []
+    prevs,promts,images,text = None,None,None,None
+    with torch.no_grad():
+        for step, batch in pbar:
+            prevs,promts,images,text = batch
+            prevs = prevs.cuda()
+            images = images.cuda()
             
-            save_path = f'{pretrained_path}/{epoch}.pt'
-            torch.save(model.state_dict(), save_path)
-            # model.load_state_dict(torch.load(save_path))
-            # model.train()
-            sample_plot_image(epoch, prevs,promts,images,text)
+            t = torch.randint(0, T, (BATCH_SIZE,), device=device).long()
+            loss = get_loss(model,prevs,promts, images, t)
+            guidance_free_loss = get_loss(model,prevs,['' for _ in range(len(promts))], images, t)
+            total_valid_loss.append(loss.detach().item())
+            total_valid_guidance_free.append(guidance_free_loss.detach().item())
+
+            if (step == 0):
+                guidance_embedding = model.text0.get_embedding(comd,device)
+                cosine_table = np.zeros((len(comd),len(comd)))
+                for i in range(len(comd)):
+                    for j in range(len(comd)):
+                        if (i == j):
+                            cosine_table[i,j] = F.cosine_embedding_loss(guidance_embedding[i],guidance_embedding[j],torch.tensor(1).cuda())
+                        else:
+                            cosine_table[i,j] = F.cosine_embedding_loss(guidance_embedding[i],guidance_embedding[j],torch.tensor(-1).cuda())
+                plt.figure(figsize=(20,20))
+                plt.clf()
+                heatmap = sns.heatmap(cosine_table,vmin=0.0,vmax=1.0,annot=True,fmt='.2f')
+                create_dir(f'{figure_path}/result_{epoch}')
+                heatmap.figure.savefig(f'{figure_path}/result_{epoch}/cosine_result.png')
+
+            if (step %10 == 0):
+                pbar.set_description(f'[Valid] epoch = {epoch}'+
+                f', loss = {np.mean(total_valid_loss):.7f}, guidance-free loss = {np.mean(total_valid_guidance_free):.7f},'+
+                f'guidance lower = {-np.mean(total_valid_loss)+np.mean(total_valid_guidance_free)}')
+
+    log_file.write(f'{epoch},{np.mean(total_train_loss):.7f},{np.mean(total_valid_loss):.7f},{np.mean(total_valid_guidance_free):.7f},'+
+    f'guidance lower = {-np.mean(total_valid_loss)+np.mean(total_valid_guidance_free)}\n')
+    log_file.flush()      
+    if (np.mean(total_valid_loss)<best_val_loss):
+        best_val_loss = np.mean(total_valid_loss)
+        print(f'new best valid loss: {best_val_loss:.7f}')
+        save_path = f'{pretrained_path}/{epoch}.pt'
+        torch.save(model.state_dict(), save_path)
+    sample_plot_image(epoch, prevs,promts,images,text)
     
 
 log_file.close()

@@ -5,46 +5,61 @@ import torchvision
 from sentence_transformers import SentenceTransformer
 
 class Block(nn.Module):
-    def __init__(self, in_ch, out_ch, time_emb_dim,text_emb_dim=None, up=False,prev_up=False):
+    def __init__(self, in_ch, out_ch, time_emb_dim=None,text_emb_dim=None, up=False,prev_down=False,prev_up=False):
         super().__init__()
         self.text_emb_dim = text_emb_dim
-        self.time_mlp =  nn.Linear(time_emb_dim, out_ch)
+        self.time_emb_dim = time_emb_dim
+        self.text_emb_out_dim = 384   #TODO
+        if (time_emb_dim):
+            self.time_mlp =  nn.Linear(time_emb_dim, out_ch)
         if (text_emb_dim):
-            self.text_mlp =  nn.Linear(text_emb_dim, 32)
+            self.text_mlp =  nn.Linear(text_emb_dim, self.text_emb_out_dim) 
+
         if up:
-            intput_dim = 3*in_ch
-            if (text_emb_dim):
-                intput_dim += 32
+            intput_dim = in_ch
+            if (not prev_up):
+                intput_dim *= 3
+            else:
+                intput_dim *= 2
+            if (self.text_emb_dim):
+                intput_dim += self.text_emb_out_dim
             self.conv1 = nn.Conv2d(intput_dim, out_ch, 3, padding=1)
             self.transform = nn.ConvTranspose2d(out_ch, out_ch, 4, 2, 1)
         else:
             intput_dim = in_ch
-            if (prev_up==False):
+            if (not prev_down):
                 intput_dim *= 2
-            if (text_emb_dim):
-                intput_dim += 32
             self.conv1 = nn.Conv2d(intput_dim, out_ch, 3, padding=1)
             self.transform = nn.Conv2d(out_ch, out_ch, 4, 2, 1)
+
         self.conv2 = nn.Conv2d(out_ch, out_ch, 3, padding=1)
         self.bnorm1 = nn.BatchNorm2d(out_ch)
         self.bnorm2 = nn.BatchNorm2d(out_ch)
         self.relu  = nn.ReLU()
         
-    def forward(self, x, t, text=None):
-        if (self.text_emb_dim):
+    def forward(self, x, t=None, text=None):
+        if (self.text_emb_dim is None):
+            assert text is None
+        if (self.time_emb_dim is None):
+            assert t is None
+
+        if (self.text_emb_dim): #TODO
+            assert text is not None
             text = self.relu(self.text_mlp(text))
             text = text[(..., ) + (None, ) * 2]
-            text = text.expand(-1,-1,x.shape[2],x.shape[3])
+            text = text.repeat(1, 1, x.shape[2], x.shape[3])
             x = torch.cat((x,text),dim=1)
 
         # First Conv
         h = self.bnorm1(self.relu(self.conv1(x)))
         
         # Time embedding
-        time_emb = self.relu(self.time_mlp(t))
-        time_emb = time_emb[(..., ) + (None, ) * 2]
+        if (self.time_emb_dim):
+            assert t is not None
+            time_emb = self.relu(self.time_mlp(t))
+            time_emb = time_emb[(..., ) + (None, ) * 2]
+            h = h + time_emb
 
-        h = h + time_emb
         # Second Conv
         h = self.bnorm2(self.relu(self.conv2(h)))
         # Down or Upsample
@@ -96,24 +111,26 @@ class SimpleUnet(nn.Module):
 
         # Downsample
         self.prev_downs = nn.ModuleList([Block(down_channels[i], down_channels[i+1], \
-                                    time_emb_dim,text_emb_dim,prev_up=True) \
+                                    prev_down=True) \
                     for i in range(len(down_channels)-1)])
 
+        self.prev_ups = nn.ModuleList([Block(up_channels[i], up_channels[i+1], \
+                                 up=True,prev_up=True) \
+            for i in range(len(up_channels)-1)])
+
         self.downs = nn.ModuleList([Block(down_channels[i], down_channels[i+1], \
-                                    time_emb_dim,text_emb_dim) \
+                                    time_emb_dim=time_emb_dim) \
                     for i in range(len(down_channels)-1)])
         # Upsample
         self.ups = nn.ModuleList([Block(up_channels[i], up_channels[i+1], \
-                                        time_emb_dim,text_emb_dim, up=True) \
+                                        time_emb_dim=time_emb_dim,text_emb_dim=text_emb_dim, up=True) \
                     for i in range(len(up_channels)-1)])
 
         self.output = nn.Conv2d(up_channels[-1], out_dim, 1)
 
     def forward(self,prev, promt, x, timestep):
         # Embedd time
-        t = self.time_mlp(timestep)
-
-        # promt = self.text0.encode(promt,convert_to_tensor=True,device=self.device)
+        timestep = self.time_mlp(timestep)
         promt = self.text0.get_embedding(promt,self.device)
         # Initial conv
         x = self.conv0(x)
@@ -124,18 +141,21 @@ class SimpleUnet(nn.Module):
         prev_residual_inputs = []
         for (down,prev_down) in zip(self.downs,self.prev_downs):
             x = torch.cat((x, prev), dim=1)   
-            x = down(x, t,promt)
-            prev = prev_down(prev,t,promt)
+            x = down(x, timestep)
+            prev = prev_down(prev)
 
             residual_inputs.append(x)
             prev_residual_inputs.append(prev)
 
-        for up in self.ups:
+
+        for (up,prev_up) in zip(self.ups,self.prev_ups):
             residual_x = residual_inputs.pop()
             prev_residual_x = prev_residual_inputs.pop()
 
-            x = torch.cat((x, residual_x,prev_residual_x), dim=1)           
-            x = up(x, t,promt)
+            x = torch.cat((x, residual_x,prev), dim=1)           
+            x = up(x, timestep,promt)
+            prev = torch.cat((prev,prev_residual_x),dim=1)
+            prev = prev_up(prev)
 
         x = self.output(x)
         return x

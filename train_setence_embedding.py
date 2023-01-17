@@ -1,12 +1,40 @@
 import psutil
 print(f'Number of CPUs: {psutil.cpu_count()}')
 p = psutil.Process()
-arr_cpus = [i for i in range(50,60)]
+arr_cpus = [i for i in range(60,70)]
 p.cpu_affinity(arr_cpus)
 print(f'CPU pool after assignment ({len(arr_cpus)}): {p.cpu_affinity()}')
 import warnings
 warnings.filterwarnings("ignore")
 
+comd = [
+    'Initialize grid',
+
+    'Add a room in the top left with size 1',
+    'Add a room in the top left with size 2',
+    'Add a room in the top left with size 3',
+    'Add a room in the top left with size 4',
+
+    'Add a room in the top right with size 1',
+    'Add a room in the top right with size 2',
+    'Add a room in the top right with size 3',
+    'Add a room in the top right with size 4',
+
+    'Add a room in the bottom left with size 1',
+    'Add a room in the bottom left with size 2',
+    'Add a room in the bottom left with size 3',
+    'Add a room in the bottom left with size 4',
+
+    'Add a room in the bottom right with size 1',
+    'Add a room in the bottom right with size 2',
+    'Add a room in the bottom right with size 3',
+    'Add a room in the bottom right with size 4',
+]
+def create_dir(name):
+    try:
+        os.mkdir(name)
+    except:
+        print(f'warning: {name} existed!')
 from torch import nn
 from torch.optim import Adam
 import math
@@ -15,6 +43,7 @@ from tqdm import trange,tqdm
 import torchvision
 from sentence_transformers import SentenceTransformer
 from utils import *
+import seaborn as sns
 #------------------------------------------------------------------#
 
 class Block(nn.Module):
@@ -117,8 +146,14 @@ class total_model(nn.Module):
 def main():
     device = "cuda" if torch.cuda.is_available() else "cpu"
     num_epochs = 1000
-    data_train = load_transformed_dataset(root_dir='./maze_train',csv_file='dataset_train.csv')
-    data_valid = load_transformed_dataset(root_dir='./maze_valid',csv_file='dataset_valid.csv')
+    exp_name = 'new_setence_embedding'
+    figure_path = './figures'
+    pretrained_path = './pretrained'
+    log_path = './logs'
+    create_dir(f'{figure_path}/{exp_name}')
+    create_dir(f'{pretrained_path}/{exp_name}')
+    data_train = load_transformed_dataset(root_dir='./dataset/maze_train',csv_file='./dataset/dataset_train.csv')
+    data_valid = load_transformed_dataset(root_dir='./dataset/maze_valid',csv_file='./dataset/dataset_valid.csv')
     print(f'train dataset have {data_train.__len__()} samples')
     print(f'valid dataset have {data_valid.__len__()} samples')
     model = total_model(device=device)
@@ -127,7 +162,7 @@ def main():
     optimizer = Adam(model.parameters(), lr=0.0001)
     train_dataloader = DataLoader(data_train, batch_size=BATCH_SIZE, shuffle=True, drop_last=True)
     valid_dataloader = DataLoader(data_valid, batch_size=BATCH_SIZE, shuffle=True, drop_last=True)
-    log_file = open('sentence_logs.csv','w')
+    log_file = open(f'{log_path}/{exp_name}_logs.csv','w')
 
     best_loss = np.inf
 
@@ -221,6 +256,20 @@ def main():
                 log = f'[valid] epoch = {epoch} cosine_loss = {np.mean(total_cosine):.7f}, l1_loss = {np.mean(total_l1):.7f}, mse_loss = {np.mean(total_mse):.7f}, total_loss = {np.mean(total_eval):.7f}'
                 if (step%10 == 0):
                     pbar.set_description(log)
+            
+            guidance_embedding = model.text_model.get_embedding(comd,device)
+            cosine_table = np.zeros((len(comd),len(comd)))
+            for i in range(len(comd)):
+                for j in range(len(comd)):
+                    if (i == j):
+                        cosine_table[i,j] = F.cosine_embedding_loss(guidance_embedding[i],guidance_embedding[j],torch.tensor(1).cuda())
+                    else:
+                        cosine_table[i,j] = F.cosine_embedding_loss(guidance_embedding[i],guidance_embedding[j],torch.tensor(-1).cuda())
+            plt.figure(figsize=(20,20))
+            plt.clf()
+            heatmap = sns.heatmap(cosine_table,vmin=0.0,vmax=1.0,annot=True,fmt='.2f')
+            create_dir(f'{figure_path}/{exp_name}/result_{epoch}')
+            heatmap.figure.savefig(f'{figure_path}/{exp_name}/result_{epoch}/cosine_result.png')
         
         log_file.write(f'{log}\n')
         log_file.flush()
@@ -228,8 +277,8 @@ def main():
         if (np.mean(total_eval)<best_loss):
             print(f'new best eval {np.mean(total_eval):.7f}')
             best_loss = np.mean(total_eval)
-            torch.save(model.text_model.state_dict(), 'valid_sentence_embedding_model.pt')
-            torch.save(model.image_model.state_dict(), 'valid_image_embedding_model.pt')
+            torch.save(model.text_model.state_dict(), f'{pretrained_path}/{exp_name}/valid_sentence_embedding_model.pt')
+            torch.save(model.image_model.state_dict(), f'{pretrained_path}/{exp_name}/valid_image_embedding_model.pt')
         else:
             print(f'eval = {np.mean(total_eval):.7f}, best eval = {best_loss:.7f}')
     log_file.close()
