@@ -7,7 +7,6 @@ from torch.utils.data import DataLoader, Dataset
 import numpy as np
 import os
 from PIL import Image
-from tokenizer.bpe import get_encoder
 
 
 
@@ -69,24 +68,17 @@ class grid_dataset(Dataset):
         self.root_dir = root_dir
         self.csv_file = open(csv_file,'r').readlines()
         self.transform = transform
-        self.tokenizer = get_encoder()
 
     def __len__(self):
         return len(self.csv_file)
 
     def __getitem__(self, idx):
-        # if (idx == 0 or idx >5):
-        #     idx = np.random.randint(1,6)
 
         line = self.csv_file[idx].replace('\n','').split(',')
 
         input_image = np.asarray(Image.open(f'{self.root_dir}/{line[0]}'))
         promt = line[1]
         output_image = np.asarray(Image.open(f'{self.root_dir}/{line[2]}'))
-
-        # promt = self.tokenizer.encode(promt)
-        # promt, mask = self.tokenizer.padded_tokens_and_mask(promt, 64)
-        # promt = torch.tensor(promt)
 
         grid_size = input_image.shape[0]
         new_input_image = np.zeros((grid_size*3,grid_size*3),dtype=np.uint8)
@@ -102,14 +94,14 @@ class grid_dataset(Dataset):
         
         return (new_input_image,promt,new_out_image,line[1])
 
-def load_transformed_dataset():
+def load_transformed_dataset(root_dir,csv_file):
     data_transforms = [
         transforms.ToTensor(), # Scales data into [0,1] 
         transforms.Lambda(lambda t: (t * 2) - 1) # Scale between [-1, 1] 
     ]
     data_transform = transforms.Compose(data_transforms)
 
-    train = grid_dataset(root_dir="./maze_dataset",csv_file='dataset.csv',
+    train = grid_dataset(root_dir=root_dir,csv_file=csv_file,
                             transform=data_transform)
     return train
 

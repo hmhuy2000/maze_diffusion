@@ -193,11 +193,6 @@ class SentenceTransformer(nn.Sequential):
         return all_embeddings
 
     def get_embedding(self,sentences,device):
-        input_was_string = False
-        if isinstance(sentences, str) or not hasattr(sentences, '__len__'): #Cast an individual sentence to a list with length 1
-            sentences = [sentences]
-            input_was_string = True
-
         self.to(device)
         features = self.tokenize(sentences)
         features = batch_to_device(features, device)

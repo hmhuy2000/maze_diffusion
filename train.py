@@ -1,7 +1,11 @@
 import psutil
 print(f'Number of CPUs: {psutil.cpu_count()}')
 p = psutil.Process()
+
 arr_cpus = [i for i in range(50,60)]
+figure_path = 'figures_guidance'
+pretrained_path = 'pretrained_guidance'
+
 p.cpu_affinity(arr_cpus)
 print(f'CPU pool after assignment ({len(arr_cpus)}): {p.cpu_affinity()}')
 import warnings
@@ -23,34 +27,21 @@ from utils import *
 from unet import *
 #-------------------------------------------------------#
 
-data = load_transformed_dataset()
-print(f'dataset have {data.__len__()} samples')
-dataloader = DataLoader(data, batch_size=BATCH_SIZE, shuffle=True, drop_last=True)
+data_train = load_transformed_dataset(root_dir='./maze_train',csv_file='dataset_train.csv')
+print(f'dataset have {data_train.__len__()} samples')
+dataloader = DataLoader(data_train, batch_size=BATCH_SIZE, shuffle=True, drop_last=True)
 device = "cuda" if torch.cuda.is_available() else "cpu"
 epochs = 1000
-log_file = open("logs.csv", "w")
-create_dir('figures')
-create_dir('pretrained')
+log_file = open("logs_guidance.csv", "a")
+log_file.write('\n--------------------------------\n')
+create_dir(figure_path)
+create_dir(pretrained_path)
 #-------------------------------------------------------#
 
-# input_image,promt,output_image = next(iter(dataloader))
-
-# plt.figure(figsize=(100,20))
-# plt.axis('off')
-# num_images = 10
-# stepsize = int(T/num_images)
-# image = output_image
-
-# for idx in range(0, T, stepsize):
-#     t = torch.Tensor([idx]).type(torch.int64)
-#     image, noise = forward_diffusion_sample(image, t)
-#     show_tensor_image(image,t,num_show=num_images,pos=idx//stepsize+1)
-#     plt.title(f'x_{t.item()}')
-
-# plt.savefig('figures/show_tensor_image.jpg')
-# exit()
 #-------------------------------------------------------#
 model = SimpleUnet(device=device)
+print('load sentence_embedding_model pretrained')
+model.text0.load_state_dict(torch.load('valid_sentence_embedding_model.pt'))
 #-------------------------------------------------------#
 
 def get_loss(model,prev, promt, x_0, t):
@@ -100,7 +91,7 @@ def sample_plot_image(epoch, prev,promt,image,text):
         if i % stepsize == 0:
             show_tensor_image(None,text[0],img.detach().cpu(),t,num_images+1, i//stepsize+2)
     plt.tight_layout()
-    plt.savefig(f'figures/result_{epoch}.png')         
+    plt.savefig(f'{figure_path}/result_{epoch}.png')         
 
 #-------------------------------------------------------#
 
@@ -113,8 +104,8 @@ for param in model.text0.parameters():
 
 for epoch in range(epochs):
     pbar = tqdm(enumerate(dataloader))
-    if (epoch == 5):
-        print('unfreeze setence transformer')
+    if (epoch == 50):
+        print('\nunfreeze setence transformer')
         for param in model.text0.parameters():
             param.requires_grad = True
 
@@ -128,16 +119,17 @@ for epoch in range(epochs):
         loss = get_loss(model,prevs,promts, images, t)
         loss.backward()
         optimizer.step()
-        if (step %50 == 0):
+        if (step %10 == 0):
             pbar.set_description(f'epoch = {epoch}, train params = {sum(p.numel() for p in model.parameters() if p.requires_grad)}, loss = {loss.item()}')
 
-        if epoch%5 == 0 and step == 0:
+        if epoch%10 == 0 and step == 0:
             log_file.write(f'{epoch},{loss:.5f}\n')
             log_file.flush()      
             
-            save_path = f'pretrained/{epoch}.pt'
+            save_path = f'{pretrained_path}/{epoch}.pt'
             torch.save(model.state_dict(), save_path)
-            model.load_state_dict(torch.load(save_path))
+            # model.load_state_dict(torch.load(save_path))
+            # model.train()
             sample_plot_image(epoch, prevs,promts,images,text)
     
 

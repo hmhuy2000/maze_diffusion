@@ -96,7 +96,7 @@ class SimpleUnet(nn.Module):
 
         # Downsample
         self.prev_downs = nn.ModuleList([Block(down_channels[i], down_channels[i+1], \
-                                    time_emb_dim,prev_up=True) \
+                                    time_emb_dim,text_emb_dim,prev_up=True) \
                     for i in range(len(down_channels)-1)])
 
         self.downs = nn.ModuleList([Block(down_channels[i], down_channels[i+1], \
@@ -125,7 +125,7 @@ class SimpleUnet(nn.Module):
         for (down,prev_down) in zip(self.downs,self.prev_downs):
             x = torch.cat((x, prev), dim=1)   
             x = down(x, t,promt)
-            prev = prev_down(prev,t)
+            prev = prev_down(prev,t,promt)
 
             residual_inputs.append(x)
             prev_residual_inputs.append(prev)

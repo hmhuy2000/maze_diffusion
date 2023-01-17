@@ -5,8 +5,11 @@ import glob
 from copy import deepcopy
 from tqdm import trange
 
+mode = 'train'
+num_sample = 100000
+# mode = 'valid'
 WALL_VALUE = 200
-root = './maze_dataset'
+root = f'./maze_{mode}'
 try:
     os.mkdir(root)
 except:
@@ -67,7 +70,7 @@ def save_grid(grid,id):
     return id
 
 def main(grid_size):
-    csv_file = open('dataset.csv','w')
+    csv_file = open(f'dataset_{mode}.csv','w')
     current_id = 0
     grid = np.zeros((grid_size,grid_size),dtype=np.uint8)
     current_id = save_grid(grid,current_id)
@@ -80,7 +83,7 @@ def main(grid_size):
             if (list_file[idx] == f'{root}/0000000.png'):
                 list_file.pop(idx)
                 break
-        for time in trange(100000):
+        for time in trange(num_sample):
             random_file = np.random.choice(list_file)
             grid = np.asarray(Image.open(random_file))
             new_grid, promt = create_random_room(grid)
