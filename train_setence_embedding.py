@@ -1,31 +1,25 @@
 import psutil
 print(f'Number of CPUs: {psutil.cpu_count()}')
 p = psutil.Process()
-arr_cpus = [i for i in range(60,70)]
+arr_cpus = [i for i in range(50,60)]
 p.cpu_affinity(arr_cpus)
 print(f'CPU pool after assignment ({len(arr_cpus)}): {p.cpu_affinity()}')
 import warnings
 warnings.filterwarnings("ignore")
 
 comd = [
-    'Initialize grid',
-
-    'Add a room in the top left with size 1',
     'Add a room in the top left with size 2',
     'Add a room in the top left with size 3',
     'Add a room in the top left with size 4',
 
-    'Add a room in the top right with size 1',
     'Add a room in the top right with size 2',
     'Add a room in the top right with size 3',
     'Add a room in the top right with size 4',
 
-    'Add a room in the bottom left with size 1',
     'Add a room in the bottom left with size 2',
     'Add a room in the bottom left with size 3',
     'Add a room in the bottom left with size 4',
 
-    'Add a room in the bottom right with size 1',
     'Add a room in the bottom right with size 2',
     'Add a room in the bottom right with size 3',
     'Add a room in the bottom right with size 4',
@@ -45,28 +39,35 @@ from sentence_transformers import SentenceTransformer
 from utils import *
 import seaborn as sns
 #------------------------------------------------------------------#
-
 class Block(nn.Module):
-    def __init__(self, in_ch, out_ch,up=False,prev_down=False):
+    def __init__(self, in_ch, out_ch, up=False,prev_down=False,prev_up=False):
         super().__init__()
+        self.text_emb_out_dim = 384   #TODO
         if up:
-            intput_dim = 3*in_ch
+            intput_dim = in_ch
+            if (not prev_up):
+                intput_dim *= 3
+            else:
+                intput_dim *= 2
             self.conv1 = nn.Conv2d(intput_dim, out_ch, 3, padding=1)
             self.transform = nn.ConvTranspose2d(out_ch, out_ch, 4, 2, 1)
         else:
             intput_dim = in_ch
-            if (prev_down==False):
+            if (not prev_down):
                 intput_dim *= 2
             self.conv1 = nn.Conv2d(intput_dim, out_ch, 3, padding=1)
             self.transform = nn.Conv2d(out_ch, out_ch, 4, 2, 1)
+
         self.conv2 = nn.Conv2d(out_ch, out_ch, 3, padding=1)
         self.bnorm1 = nn.BatchNorm2d(out_ch)
         self.bnorm2 = nn.BatchNorm2d(out_ch)
         self.relu  = nn.ReLU()
         
     def forward(self, x):
+
         # First Conv
         h = self.bnorm1(self.relu(self.conv1(x)))
+
         # Second Conv
         h = self.bnorm2(self.relu(self.conv2(h)))
         # Down or Upsample
@@ -89,17 +90,17 @@ class SimpleUnet(nn.Module):
         self.conv0 = nn.Conv2d(image_channels, down_channels[0], 3, padding=1)
         self.prev_conv0 = nn.Conv2d(image_channels, down_channels[0], 3, padding=1)
 
-        # Downsample
         self.prev_downs = nn.ModuleList([Block(down_channels[i], down_channels[i+1], \
                                     prev_down=True) \
                     for i in range(len(down_channels)-1)])
 
-        self.downs = nn.ModuleList([Block(down_channels[i], down_channels[i+1], \
-                                    ) \
+        self.prev_ups = nn.ModuleList([Block(up_channels[i], up_channels[i+1], \
+                                 up=True,prev_up=True) \
+            for i in range(len(up_channels)-1)])
+
+        self.downs = nn.ModuleList([Block(down_channels[i], down_channels[i+1]) \
                     for i in range(len(down_channels)-1)])
-        # Upsample
-        self.ups = nn.ModuleList([Block(up_channels[i], up_channels[i+1], \
-                                         up=True) \
+        self.ups = nn.ModuleList([Block(up_channels[i], up_channels[i+1], up=True) \
                     for i in range(len(up_channels)-1)])
 
         self.output = nn.Conv2d(up_channels[-1], out_dim, 1)
@@ -118,16 +119,17 @@ class SimpleUnet(nn.Module):
             x = torch.cat((x, prev), dim=1)   
             x = down(x)
             prev = prev_down(prev)
-
             residual_inputs.append(x)
             prev_residual_inputs.append(prev)
 
-        for up in self.ups:
+
+        for (up,prev_up) in zip(self.ups,self.prev_ups):
             residual_x = residual_inputs.pop()
             prev_residual_x = prev_residual_inputs.pop()
-
-            x = torch.cat((x, residual_x,prev_residual_x), dim=1)           
+            x = torch.cat((x, residual_x,prev), dim=1)           
             x = up(x)
+            prev = torch.cat((prev,prev_residual_x),dim=1)
+            prev = prev_up(prev)
 
         x = self.output(x).flatten(1)
         x = self.last_ln(self.relu(x))
@@ -146,14 +148,14 @@ class total_model(nn.Module):
 def main():
     device = "cuda" if torch.cuda.is_available() else "cpu"
     num_epochs = 1000
-    exp_name = 'new_setence_embedding'
+    exp_name = '2_step_setence_embedding'
     figure_path = './figures'
     pretrained_path = './pretrained'
     log_path = './logs'
     create_dir(f'{figure_path}/{exp_name}')
     create_dir(f'{pretrained_path}/{exp_name}')
-    data_train = load_transformed_dataset(root_dir='./dataset/maze_train',csv_file='./dataset/dataset_train.csv')
-    data_valid = load_transformed_dataset(root_dir='./dataset/maze_valid',csv_file='./dataset/dataset_valid.csv')
+    data_train = load_transformed_dataset(root_dir='./dataset/2_step_train',csv_file='./dataset/dataset_2_step_train.csv')
+    data_valid = load_transformed_dataset(root_dir='./dataset/2_step_test',csv_file='./dataset/dataset_2_step_test.csv')
     print(f'train dataset have {data_train.__len__()} samples')
     print(f'valid dataset have {data_valid.__len__()} samples')
     model = total_model(device=device)
@@ -161,8 +163,8 @@ def main():
     model.train()
     optimizer = Adam(model.parameters(), lr=0.0001)
     train_dataloader = DataLoader(data_train, batch_size=BATCH_SIZE, shuffle=True, drop_last=True)
-    valid_dataloader = DataLoader(data_valid, batch_size=BATCH_SIZE, shuffle=True, drop_last=True)
-    log_file = open(f'{log_path}/{exp_name}_logs.csv','w')
+    valid_dataloader = DataLoader(data_valid, batch_size=BATCH_SIZE, drop_last=True)
+    log_file = open(f'{log_path}/{exp_name}_logs.csv','a')
 
     best_loss = np.inf
 

@@ -4,17 +4,18 @@ import os
 import glob
 from copy import deepcopy
 from tqdm import trange
-
-mode = 'train'
-num_sample = 100000
+def create_dir(name):
+    try:
+        os.mkdir(name)
+    except:
+        print(f'warning: {name} existed!')
+mode = '2_step_test'
+num_sample = np.asarray([5000,10000])*1
 # mode = 'valid'
 WALL_VALUE = 200
-root = f'./maze_{mode}'
-try:
-    os.mkdir(root)
-except:
-    print(f'{root} existed')
-    raise
+root = f'./dataset'
+create_dir(root)
+create_dir(f'{root}/{mode}')
 
 def create_random_room(old_grid):
     grid = deepcopy(old_grid)
@@ -29,20 +30,20 @@ def create_random_room(old_grid):
     ]
     position_promt = np.random.choice(range(len(list_position_prompts)))
     if position_promt == 0:
-        posX = np.random.randint(low=1,high=grid_size//2)
-        posY = np.random.randint(low=1,high=grid_size//2)
+        posX = np.random.randint(low=1,high=grid_size//2-1)
+        posY = np.random.randint(low=1,high=grid_size//2-1)
     elif position_promt == 1:
-        posX = np.random.randint(low=1,high=grid_size//2)
-        posY = np.random.randint(low=grid_size//2,high=grid_size-1)
+        posX = np.random.randint(low=1,high=grid_size//2-1)
+        posY = np.random.randint(low=grid_size//2+1,high=grid_size-1)
     elif position_promt == 2:
-        posX = np.random.randint(low=grid_size//2,high=grid_size-1)
-        posY = np.random.randint(low=1,high=grid_size//2)
+        posX = np.random.randint(low=grid_size//2+1,high=grid_size-1)
+        posY = np.random.randint(low=1,high=grid_size//2-1)
     elif position_promt == 3:
-        posX = np.random.randint(low=grid_size//2,high=grid_size-1)
-        posY = np.random.randint(low=grid_size//2,high=grid_size-1)
+        posX = np.random.randint(low=grid_size//2-1,high=grid_size-1)
+        posY = np.random.randint(low=grid_size//2-1,high=grid_size-1)
 
     #---------------------------------------------------------#        
-    size = np.random.randint(low=1,high=5)
+    size = np.random.randint(low=2,high=5)
     #---------------------------------------------------------#        
     for x in range(grid_size):
         for y in range(grid_size):
@@ -65,26 +66,20 @@ def save_grid(grid,id):
     while len(name)<7:
         name = '0'+name
     im = Image.fromarray(grid)
-    im.save(f"{root}/{name}.png")
+    im.save(f"{root}/{mode}/{name}.png")
     id += 1
     return id
 
 def main(grid_size):
-    csv_file = open(f'dataset_{mode}.csv','w')
+    csv_file = open(f'{root}/dataset_{mode}.csv','w')
     current_id = 0
     grid = np.zeros((grid_size,grid_size),dtype=np.uint8)
-    current_id = save_grid(grid,current_id)
-    csv_file.write(f'0000000.png,Initialize grid,0000001.png\n')
     grid = create_empty_grid(grid)
     current_id = save_grid(grid,current_id)
-    for loop in range(1):
-        list_file = glob.glob(f"{root}/*.png")
-        for idx in range(len(list_file)):
-            if (list_file[idx] == f'{root}/0000000.png'):
-                list_file.pop(idx)
-                break
-        for time in trange(num_sample):
-            random_file = np.random.choice(list_file)
+    for loop in range(len(num_sample)):
+        list_file = glob.glob(f"{root}/{mode}/*.png")
+        for time in trange(num_sample[loop]):
+            random_file = list_file[np.random.randint(0,len(list_file))]
             grid = np.asarray(Image.open(random_file))
             new_grid, promt = create_random_room(grid)
             name = f'{current_id}'

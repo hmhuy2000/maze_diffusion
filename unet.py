@@ -29,6 +29,8 @@ class Block(nn.Module):
             intput_dim = in_ch
             if (not prev_down):
                 intput_dim *= 2
+            if (self.text_emb_dim):
+                intput_dim += self.text_emb_out_dim
             self.conv1 = nn.Conv2d(intput_dim, out_ch, 3, padding=1)
             self.transform = nn.Conv2d(out_ch, out_ch, 4, 2, 1)
 
@@ -119,7 +121,7 @@ class SimpleUnet(nn.Module):
             for i in range(len(up_channels)-1)])
 
         self.downs = nn.ModuleList([Block(down_channels[i], down_channels[i+1], \
-                                    time_emb_dim=time_emb_dim) \
+                                    time_emb_dim=time_emb_dim,text_emb_dim=text_emb_dim) \
                     for i in range(len(down_channels)-1)])
         # Upsample
         self.ups = nn.ModuleList([Block(up_channels[i], up_channels[i+1], \
@@ -141,7 +143,7 @@ class SimpleUnet(nn.Module):
         prev_residual_inputs = []
         for (down,prev_down) in zip(self.downs,self.prev_downs):
             x = torch.cat((x, prev), dim=1)   
-            x = down(x, timestep)
+            x = down(x, timestep,promt)
             prev = prev_down(prev)
 
             residual_inputs.append(x)

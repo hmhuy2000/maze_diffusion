@@ -5,7 +5,7 @@ __pycache__/
 *.png
 *.jpg
 *.pt
-
+*.csv
 maze_dataset/*
 # C extensions
 *.so

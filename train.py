@@ -3,7 +3,7 @@ print(f'Number of CPUs: {psutil.cpu_count()}')
 p = psutil.Process()
 
 arr_cpus = [i for i in range(50,60)]
-exp_name = 'new_guidance'
+exp_name = '3_step_guidance'
 figure_path = f'figures/{exp_name}'
 pretrained_path = f'pretrained/{exp_name}'
 
@@ -15,24 +15,18 @@ warnings.filterwarnings("ignore")
 #-------------------------------------------------------#
 
 comd = [
-    'Initialize grid',
-
-    'Add a room in the top left with size 1',
     'Add a room in the top left with size 2',
     'Add a room in the top left with size 3',
     'Add a room in the top left with size 4',
 
-    'Add a room in the top right with size 1',
     'Add a room in the top right with size 2',
     'Add a room in the top right with size 3',
     'Add a room in the top right with size 4',
 
-    'Add a room in the bottom left with size 1',
     'Add a room in the bottom left with size 2',
     'Add a room in the bottom left with size 3',
     'Add a room in the bottom left with size 4',
 
-    'Add a room in the bottom right with size 1',
     'Add a room in the bottom right with size 2',
     'Add a room in the bottom right with size 3',
     'Add a room in the bottom right with size 4',
@@ -58,25 +52,31 @@ from utils import *
 from unet import *
 #-------------------------------------------------------#
 
-data_train = load_transformed_dataset(root_dir='./dataset/maze_train',csv_file='./dataset/dataset_train.csv')
-data_valid = load_transformed_dataset(root_dir='./dataset/maze_valid',csv_file='./dataset/dataset_valid.csv')
+data_train = load_transformed_dataset(root_dir='./dataset/3_step_train',csv_file='./dataset/dataset_3_step_train.csv')
+data_valid = load_transformed_dataset(root_dir='./dataset/3_step_test',csv_file='./dataset/dataset_3_step_test.csv')
 print(f'train dataset have {data_train.__len__()} samples')
 print(f'valid dataset have {data_valid.__len__()} samples')
 dataloader = DataLoader(data_train, batch_size=BATCH_SIZE, shuffle=True, drop_last=True)
-valid_dataloader = DataLoader(data_valid, batch_size=BATCH_SIZE, shuffle=True, drop_last=True)
+valid_dataloader = DataLoader(data_valid, batch_size=BATCH_SIZE, drop_last=True)
 device = "cuda" if torch.cuda.is_available() else "cpu"
 epochs = 1000
 log_file = open(f"logs/{exp_name}.csv", "a")
-log_file.write('epoch,train_loss,valid_loss,valid_no_guidance_loss\n')
+log_file.write('epoch,learning_rate,train_loss,valid_loss,valid_no_guidance_loss,guidance_lower,trainning_param\n')
 create_dir(figure_path)
 create_dir(pretrained_path)
 #-------------------------------------------------------#
-
-#-------------------------------------------------------#
 model = SimpleUnet(device=device)
 print(f'total model parameter: {sum(p.numel() for p in model.parameters())}')
-print('load sentence_embedding_model pretrained')
-model.text0.load_state_dict(torch.load('./pretrained/new_setence_embedding/valid_sentence_embedding_model.pt'))
+#-------------------------------------------------------#
+sentence_pretrained = './pretrained/3_step_setence_embedding/valid_sentence_embedding_model.pt'
+print(f'load sentence_embedding_model pretrained from {sentence_pretrained}')
+model.text0.load_state_dict(torch.load(sentence_pretrained))
+start_epoch = 0
+
+# pretrained = './pretrained/3_step_guidance/53.pt'
+# start_epoch = int(pretrained.split('/')[-1].split('.')[0])+1
+# print(f'load pretrained from {pretrained}')
+# model.load_state_dict(torch.load(pretrained))
 #-------------------------------------------------------#
 
 def get_loss(model,prev, promt, x_0, t):
@@ -132,18 +132,21 @@ def sample_plot_image(epoch, prev,promt,image,text):
 
 
 #-------------------------------------------------------#
-
+init_learning_rate = 0.001
 model.to(device)
 model.train()
-optimizer = Adam(model.parameters(), lr=0.001)
-scheduler = CosineAnnealingLR(optimizer,T_max=100,eta_min=1e-4)
+optimizer = Adam(model.parameters(), lr=init_learning_rate)
 print('freeze setence transformer')
 for param in model.text0.parameters():
     param.requires_grad = False
 best_val_loss = np.inf
-for epoch in range(epochs):
+for epoch in range(start_epoch,epochs):
+
+    for g in optimizer.param_groups:
+        g['lr'] = max(0.0001,init_learning_rate*(0.95**epoch))
+
     pbar = tqdm(enumerate(dataloader))
-    if (epoch == 100):
+    if (epoch == 50):
         print('\nunfreeze setence transformer')
         for param in model.text0.parameters():
             param.requires_grad = True
@@ -160,9 +163,9 @@ for epoch in range(epochs):
         loss.backward()
         optimizer.step()
         if (step %10 == 0):
-            pbar.set_description(f'[Train] epoch = {epoch}, learning rate = {optimizer.param_groups[0]["lr"]:.5f}'+
+            pbar.set_description(f'[Train] epoch = {epoch},num_param = {sum(p.numel() for p in model.parameters() if p.requires_grad)}, learning rate = {optimizer.param_groups[0]["lr"]:.5f}'+
             f', loss = {np.mean(total_train_loss):.7f}')
-    scheduler.step()
+
     pbar = tqdm(enumerate(valid_dataloader))
     total_valid_loss = []
     total_valid_guidance_free = []
@@ -199,8 +202,8 @@ for epoch in range(epochs):
                 f', loss = {np.mean(total_valid_loss):.7f}, guidance-free loss = {np.mean(total_valid_guidance_free):.7f},'+
                 f'guidance lower = {-np.mean(total_valid_loss)+np.mean(total_valid_guidance_free)}')
 
-    log_file.write(f'{epoch},{np.mean(total_train_loss):.7f},{np.mean(total_valid_loss):.7f},{np.mean(total_valid_guidance_free):.7f},'+
-    f'guidance lower = {-np.mean(total_valid_loss)+np.mean(total_valid_guidance_free)}\n')
+    log_file.write(f'{epoch},{optimizer.param_groups[0]["lr"]:.5f},{np.mean(total_train_loss):.7f},{np.mean(total_valid_loss):.7f},{np.mean(total_valid_guidance_free):.7f},'+
+    f'{-np.mean(total_valid_loss)+np.mean(total_valid_guidance_free)},{sum(p.numel() for p in model.parameters() if p.requires_grad)}\n')
     log_file.flush()      
     if (np.mean(total_valid_loss)<best_val_loss):
         best_val_loss = np.mean(total_valid_loss)
