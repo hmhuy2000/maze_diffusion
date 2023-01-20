@@ -3,9 +3,6 @@ print(f'Number of CPUs: {psutil.cpu_count()}')
 p = psutil.Process()
 
 arr_cpus = [i for i in range(50,60)]
-exp_name = '3_step_guidance'
-figure_path = f'figures/{exp_name}'
-pretrained_path = f'pretrained/{exp_name}'
 
 p.cpu_affinity(arr_cpus)
 print(f'CPU pool after assignment ({len(arr_cpus)}): {p.cpu_affinity()}')
@@ -39,7 +36,6 @@ import matplotlib.pyplot as plt
 from torch.optim import Adam
 from tqdm import trange,tqdm
 import seaborn as sns
-from torch.optim.lr_scheduler import CosineAnnealingLR
 
 
 def create_dir(name):
@@ -51,9 +47,11 @@ def create_dir(name):
 from utils import *
 from unet import *
 #-------------------------------------------------------#
-
-data_train = load_transformed_dataset(root_dir='./dataset/3_step_train',csv_file='./dataset/dataset_3_step_train.csv')
-data_valid = load_transformed_dataset(root_dir='./dataset/3_step_test',csv_file='./dataset/dataset_3_step_test.csv')
+exp_name = '2_step_guidance'
+figure_path = f'figures/{exp_name}'
+pretrained_path = f'pretrained/{exp_name}'
+data_train = load_transformed_dataset(root_dir='./dataset/2_step_train',csv_file='./dataset/dataset_2_step_train.csv')
+data_valid = load_transformed_dataset(root_dir='./dataset/2_step_test',csv_file='./dataset/dataset_2_step_test.csv')
 print(f'train dataset have {data_train.__len__()} samples')
 print(f'valid dataset have {data_valid.__len__()} samples')
 dataloader = DataLoader(data_train, batch_size=BATCH_SIZE, shuffle=True, drop_last=True)
@@ -68,7 +66,7 @@ create_dir(pretrained_path)
 model = SimpleUnet(device=device)
 print(f'total model parameter: {sum(p.numel() for p in model.parameters())}')
 #-------------------------------------------------------#
-sentence_pretrained = './pretrained/3_step_setence_embedding/valid_sentence_embedding_model.pt'
+sentence_pretrained = './pretrained/2_step_setence_embedding/valid_sentence_embedding_model.pt'
 print(f'load sentence_embedding_model pretrained from {sentence_pretrained}')
 model.text0.load_state_dict(torch.load(sentence_pretrained))
 start_epoch = 0
