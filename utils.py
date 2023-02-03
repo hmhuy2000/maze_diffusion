@@ -67,7 +67,7 @@ sqrt_one_minus_alphas_cumprod = torch.sqrt(1. - alphas_cumprod)
 posterior_variance = betas * (1. - alphas_cumprod_prev) / (1. - alphas_cumprod)
 
 IMG_SIZE = 64
-scale_img = 2
+scale_img = 3
 IMG_SIZE = IMG_SIZE*scale_img
 BATCH_SIZE = 64
 
