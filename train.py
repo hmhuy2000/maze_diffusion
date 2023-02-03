@@ -166,16 +166,16 @@ def sample_plot_image(epoch, prev,promt,image,Xmins,Ymins,Xmaxs,Ymaxs):
         img = deepcopy(prev[idx])
         Xmin,Ymin,Xmax,Ymax = Xmins[idx],Ymins[idx],Xmaxs[idx],Ymaxs[idx]
 
-        # noise = torch.zeros_like(img)
-        # noise[:,Xmin:Xmax+1,Ymin:Ymax+1] = torch.randn(noise[:,Xmin:Xmax+1,Ymin:Ymax+1].shape)
+        noise = torch.zeros_like(img)
+        noise[:,Xmin:Xmax+1,Ymin:Ymax+1] = torch.randn(noise[:,Xmin:Xmax+1,Ymin:Ymax+1].shape)
 
-        # sqrt_alphas_cumprod_t = get_index_from_list(sqrt_alphas_cumprod, torch.full((1,), T-1, device=device, dtype=torch.long), img.shape)
-        # sqrt_one_minus_alphas_cumprod_t = get_index_from_list(
-        #     sqrt_one_minus_alphas_cumprod, torch.full((1,), T-1, device=device, dtype=torch.long), img.shape
-        # )
-        # img = sqrt_alphas_cumprod_t.to(device) * img.to(device) + sqrt_one_minus_alphas_cumprod_t.to(device) * noise.to(device)
+        sqrt_alphas_cumprod_t = get_index_from_list(sqrt_alphas_cumprod, torch.full((1,), T-1, device=device, dtype=torch.long), img.shape)
+        sqrt_one_minus_alphas_cumprod_t = get_index_from_list(
+            sqrt_one_minus_alphas_cumprod, torch.full((1,), T-1, device=device, dtype=torch.long), img.shape
+        )
+        img = sqrt_alphas_cumprod_t.to(device) * img.to(device) + sqrt_one_minus_alphas_cumprod_t.to(device) * noise.to(device)
 
-        img[:,Xmin:Xmax+1,Ymin:Ymax+1] = torch.randn(img[:,Xmin:Xmax+1,Ymin:Ymax+1].shape)
+        # img[:,Xmin:Xmax+1,Ymin:Ymax+1] = torch.randn(img[:,Xmin:Xmax+1,Ymin:Ymax+1].shape)
 
         img = img.unsqueeze(0).cuda()
 
@@ -217,7 +217,6 @@ for epoch in range(start_epoch,epochs):
             param.requires_grad = True
     total_train_loss = []
     for step, batch in pbar:
-        break
         prevs,promts,images,Xmins,Ymins,Xmaxs,Ymaxs = batch
         images = images.cuda()
         optimizer.zero_grad()
@@ -239,7 +238,6 @@ for epoch in range(start_epoch,epochs):
     with torch.no_grad():
         for step, batch in pbar:
             prevs,promts,images,Xmins,Ymins,Xmaxs,Ymaxs = batch
-            break
             images = images.cuda()
             t = torch.randint(0, T, (BATCH_SIZE,), device=device).long()
             loss = get_loss(model,promts, images, t,Xmins,Ymins,Xmaxs,Ymaxs)
