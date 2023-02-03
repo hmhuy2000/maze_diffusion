@@ -4,62 +4,31 @@ import os
 import glob
 from copy import deepcopy
 from tqdm import trange
-def create_dir(name):
-    try:
-        os.mkdir(name)
-    except:
-        print(f'warning: {name} existed!')
-mode = '2_step_test'
-num_sample = np.asarray([5000,10000])*1
-# mode = 'valid'
-WALL_VALUE = 200
+
+import psutil
+print(f'Number of CPUs: {psutil.cpu_count()}')
+p = psutil.Process()
+
+arr_cpus = [i for i in range(80,96)]
+
+p.cpu_affinity(arr_cpus)
+print(f'CPU pool after assignment ({len(arr_cpus)}): {p.cpu_affinity()}')
+import warnings
+warnings.filterwarnings("ignore")
+
+from grid_utils import *
+num_scale = 1
+mode = 'train_small'
+# mode = 'train'
+# mode = 'test'
+if (mode == 'train'):
+    num_scale = 10
+if (mode == 'train_small'):
+    num_scale = 3
+mode = f'64_3step_region_{mode}'
+num_sample = np.asarray([5000,10000,10000])*num_scale
+print(f'create dataset as {mode} with num_sample = {num_sample}')
 root = f'./dataset'
-create_dir(root)
-create_dir(f'{root}/{mode}')
-
-def create_random_room(old_grid):
-    grid = deepcopy(old_grid)
-    (grid_size,grid_size) = grid.shape
-    posX,posY = None,None
-
-    list_position_prompts = [
-        'Add a room in the top left',
-        'Add a room in the top right',
-        'Add a room in the bottom left',
-        'Add a room in the bottom right',
-    ]
-    position_promt = np.random.choice(range(len(list_position_prompts)))
-    if position_promt == 0:
-        posX = np.random.randint(low=1,high=grid_size//2-1)
-        posY = np.random.randint(low=1,high=grid_size//2-1)
-    elif position_promt == 1:
-        posX = np.random.randint(low=1,high=grid_size//2-1)
-        posY = np.random.randint(low=grid_size//2+1,high=grid_size-1)
-    elif position_promt == 2:
-        posX = np.random.randint(low=grid_size//2+1,high=grid_size-1)
-        posY = np.random.randint(low=1,high=grid_size//2-1)
-    elif position_promt == 3:
-        posX = np.random.randint(low=grid_size//2-1,high=grid_size-1)
-        posY = np.random.randint(low=grid_size//2-1,high=grid_size-1)
-
-    #---------------------------------------------------------#        
-    size = np.random.randint(low=2,high=5)
-    #---------------------------------------------------------#        
-    for x in range(grid_size):
-        for y in range(grid_size):
-            if (abs(x-posX)+abs(y-posY)==size):
-                grid[x,y] = WALL_VALUE
-
-    final_promt = list_position_prompts[position_promt] + f' with size {size}'
-    return grid,final_promt
-
-def create_empty_grid(grid):
-    grid[:,0:1] = WALL_VALUE
-    grid[:,-1:] = WALL_VALUE
-    grid[0:1,:] = WALL_VALUE
-    grid[-1:,:] = WALL_VALUE
-
-    return grid
 
 def save_grid(grid,id):
     name = f'{id}'
@@ -70,7 +39,56 @@ def save_grid(grid,id):
     id += 1
     return id
 
+def random_region_generated_dataset(input_grid):
+    grid = deepcopy(input_grid)
+    (grid_size,grid_size) = grid.shape
+    for trial_pos in range(100):
+        size = 8
+        centerX = np.random.randint(size,grid_size-size)
+        centerY = np.random.randint(size,grid_size-size)
+        prompt = None
+        failed = False
+        for x in range(grid_size):
+            if (failed):
+                break
+            for y in range(grid_size):
+                if (abs(x-centerX)<=size and abs(y-centerY)<=size and grid[x,y]==WALL_VALUE):
+                    failed=True
+                    break
+
+        if (failed):
+            continue
+        num_room = np.random.randint(1,3+1)
+        valid_room_size = size
+
+        use_square = 0 #np.random.randint(0,100)%2==0
+        create_room_fn = None
+        if (use_square):
+            create_room_fn = create_random_square_room
+            prompt = f'create {num_room} square,{centerX-size},{centerY-size},{centerX+size},{centerY+size}'
+        else:
+            create_room_fn = create_random_diamond_room
+            prompt = f'create {num_room} diamond,{centerX-size},{centerY-size},{centerX+size},{centerY+size}'
+
+        for id in range(num_room):
+            for trial_room_place in range(100):
+                room_size = np.random.randint(MIN_ROOM_SIZE,min(MAX_ROOM_SIZE,valid_room_size - (num_room-id-1)*MIN_ROOM_SIZE)+1)
+                tmp_grid = None
+                tmp_grid = create_room_fn(grid,room_size,
+                                centerX-size,centerY-size,
+                                centerX+size,centerY+size)
+
+                if (tmp_grid is not None):
+                    valid_room_size -= room_size
+                    grid = tmp_grid
+                    break
+
+        return grid,prompt
+
 def main(grid_size):
+    create_dir(root)
+    create_dir(f'{root}/{mode}')
+
     csv_file = open(f'{root}/dataset_{mode}.csv','w')
     current_id = 0
     grid = np.zeros((grid_size,grid_size),dtype=np.uint8)
@@ -81,14 +99,14 @@ def main(grid_size):
         for time in trange(num_sample[loop]):
             random_file = list_file[np.random.randint(0,len(list_file))]
             grid = np.asarray(Image.open(random_file))
-            new_grid, promt = create_random_room(grid)
+            new_grid, prompt = random_region_generated_dataset(grid)
             name = f'{current_id}'
             while len(name)<7:
                 name = '0'+name
-            csv_file.write(f'{random_file.split("/")[-1]},{promt},{name}.png\n')
+            csv_file.write(f'{random_file.split("/")[-1]},{prompt},{name}.png\n')
             current_id = save_grid(new_grid,current_id)
     csv_file.close()
 
 if __name__ == '__main__':
-    for size in [16]:
+    for size in [64]:
         main(grid_size=size)
