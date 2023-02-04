@@ -38,7 +38,7 @@ reverse_transforms = transforms.Compose([
     ])
 
 #-------------------------------------------------------#
-exp_name = 'region_3step_64'
+exp_name = 'new_64'
 figure_path = f'figures/{exp_name}'
 pretrained_path = f'pretrained/{exp_name}'
 # data_train = load_transformed_dataset(root_dir='./dataset/64_region_train',csv_file='./dataset/dataset_64_region_train.csv')
@@ -107,10 +107,10 @@ print(f'total model parameter: {sum(p.numel() for p in model.parameters())}')
 # model.text0.load_state_dict(torch.load(sentence_pretrained))
 start_epoch = 0
 
-pretrained = './pretrained/region_3step_64/44.pt'
-start_epoch = int(pretrained.split('/')[-1].split('.')[0])+1
-print(f'load pretrained from {pretrained}')
-model.load_state_dict(torch.load(pretrained))
+# pretrained = './pretrained/region_3step_64/44.pt'
+# start_epoch = int(pretrained.split('/')[-1].split('.')[0])+1
+# print(f'load pretrained from {pretrained}')
+# model.load_state_dict(torch.load(pretrained))
 #-------------------------------------------------------#
 
 def get_loss(model, promt, x_0, t,Xmins,Ymins,Xmaxs,Ymaxs):
@@ -211,7 +211,7 @@ for epoch in range(start_epoch,epochs):
         g['lr'] = max(0.0001,init_learning_rate*(0.95**epoch))
     model.train()
     pbar = tqdm(enumerate(dataloader))
-    if (epoch == 1):
+    if (epoch == 5):
         print('\nunfreeze setence transformer')
         for param in model.text0.parameters():
             param.requires_grad = True
