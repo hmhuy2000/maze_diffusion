@@ -25,7 +25,7 @@ import seaborn as sns
 
 import wandb
 wandb.init(project='maze_diffusion', settings=wandb.Settings(_disable_stats=True), \
-        group='2_input_sentence', name='0', entity='hmhuy')
+        group='mask_prediction_sentence', name='0', entity='hmhuy')
 #------------------------------------------------------------------#
 reverse_transforms = transforms.Compose([
         transforms.Lambda(lambda t: (t + 1) / 2),
@@ -118,9 +118,9 @@ class total_model(nn.Module):
 #------------------------------------------------------------------#
 
 def main():
-    train_root_dir = './dataset/easy_region_train_small'
+    train_root_dir = './dataset/easy_region_train'
     valid_root_dir = './dataset/easy_region_test'
-    train_csv = './dataset/dataset_easy_region_train_small.csv'
+    train_csv = './dataset/dataset_easy_region_train.csv'
     valid_csv = './dataset/dataset_easy_region_test.csv'
     comd = []
     for line in tqdm(open(train_csv,'r').readlines()):
@@ -131,7 +131,7 @@ def main():
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     num_epochs = 1000
-    exp_name = 'more_sentence'
+    exp_name = 'mask_prediction_sentence'
     figure_path = './figures'
     pretrained_path = './pretrained'
     log_path = './logs'
@@ -145,6 +145,14 @@ def main():
     model = total_model(device=device)
     model.to(device)
     model.train()
+
+    sentence_pretrained = './pretrained/mask_prediction_sentence/valid_sentence_embedding_model.pt'
+    print(f'load sentence_embedding_model pretrained from {sentence_pretrained}')
+    model.text_model.load_state_dict(torch.load(sentence_pretrained))
+    image_pretrained = './pretrained/mask_prediction_sentence/valid_image_embedding_model.pt'
+    print(f'load image_embedding_model pretrained from {image_pretrained}')
+    model.image_model.load_state_dict(torch.load(image_pretrained))
+
     optimizer = Adam(model.parameters(), lr=0.0001)
     train_dataloader = DataLoader(data_train, batch_size=BATCH_SIZE, shuffle=True, drop_last=True)
     valid_dataloader = DataLoader(data_valid, batch_size=BATCH_SIZE, drop_last=True)
@@ -152,11 +160,17 @@ def main():
 
     best_loss = np.inf
     train_loss = []
+    train_cosine_loss = []
+    train_mse_loss = []
     for epoch in range(num_epochs):
         pbar = tqdm(enumerate(train_dataloader), total=data_train.__len__()//BATCH_SIZE)
         for step, batch in pbar:
             optimizer.zero_grad()
             prevs,promts,images,Xmins,Ymins,Xmaxs,Ymaxs = batch
+            if (step%100 == 0):
+                reverse_transforms(prevs[0].cpu()).save('tmp/prev.png')
+                reverse_transforms(images[0].cpu()).save('tmp/image.png')
+                reverse_transforms((images[0]-prevs[0]).cpu()).save('tmp/target.png')
             images = (images-prevs).cuda()
             num_data = len(promts)
 
@@ -186,11 +200,13 @@ def main():
                 cosine_loss
             )
             train_loss.append(loss.item())
+            train_cosine_loss.append(cosine_loss.item())
+            train_mse_loss.append(mse_loss.item())
             loss.backward()
             optimizer.step()
             if (step %10 == 0):
                 pbar.set_description(f'[train] epoch = {epoch}, train params = {sum(p.numel() for p in model.parameters() if p.requires_grad)},'+
-            f'cosine_loss = {cosine_loss.item():.7f}, mse_loss = {mse_loss.item():.7f}, total_loss = {np.mean(train_loss):.7f}')
+            f'cosine_loss = {np.mean(train_cosine_loss):.7f}, mse_loss = {np.mean(train_mse_loss):.7f}, total_loss = {np.mean(train_loss):.7f}')
 
         total_eval = []
         total_cosine = []
@@ -238,6 +254,8 @@ def main():
                     pbar.set_description(log)
             wandb.log({
                 'sentence_loss/train_loss':np.mean(train_loss),
+                'sentence_loss/train_mse_loss':np.mean(train_mse_loss),
+                'sentence_loss/train_cosine_loss':np.mean(train_cosine_loss),
                 'sentence_loss/valid_loss':np.mean(total_eval),
                 'sentence_loss/valid_mse_loss':np.mean(total_mse),
                 'sentence_loss/valid_cosine_loss':np.mean(total_cosine),

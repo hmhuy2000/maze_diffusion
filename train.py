@@ -116,7 +116,8 @@ print(f'load sentence_embedding_model pretrained from {sentence_pretrained}')
 model.text0.load_state_dict(torch.load(sentence_pretrained))
 #-------------------------------------------------------#
 
-def get_loss(model,prev, promt, x_0, t,Xmins,Ymins,Xmaxs,Ymaxs):
+def get_loss(model,prev, promt, image, t,Xmins,Ymins,Xmaxs,Ymaxs):
+    x_0 = image - prev
     x_noisy, noise = forward_diffusion_sample(x_0, t, Xmins, Ymins, Xmaxs, Ymaxs, device)
     noise_pred = model(prev,promt,x_noisy,t)
 

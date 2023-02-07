@@ -20,13 +20,13 @@ warnings.filterwarnings("ignore")
 from grid_utils import *
 num_scale = 1
 mode = 'train_small'
-# mode = 'train'
-# mode = 'test'
+mode = 'train'
+mode = 'test'
 if (mode == 'train'):
     num_scale = 10
 if (mode == 'train_small'):
-    num_scale = 4
-mode = f'easy_region_{mode}'
+    num_scale = 5
+mode = f'square_region_{mode}'
 num_sample = np.asarray([5000,10000,10000])*num_scale
 print(f'create dataset as {mode} with num_sample = {num_sample}')
 root = f'./dataset'
@@ -73,7 +73,7 @@ def random_region_generated_dataset(input_grid):
     grid = deepcopy(input_grid)
     (grid_size,grid_size) = grid.shape
     for trial_pos in range(100):
-        size = np.random.randint(MIN_REGION_SIZE,MAX_REGION_SIZE+1)
+        size = 10
         centerX = np.random.randint(size,grid_size-size)
         centerY = np.random.randint(size,grid_size-size)
         prompt = None
@@ -90,8 +90,8 @@ def random_region_generated_dataset(input_grid):
             continue
         #-----------------------------------------------#
 
-        num_room = np.random.randint(1,size//(MAX_ROOM_SIZE-1)+1)
-        use_square = np.random.randint(0,num_room+1)
+        num_room = np.random.randint(1,3+1)
+        use_square = num_room #np.random.randint(0,num_room+1)
         use_diamond = num_room - use_square
         obj_ls = []
         if (use_square):
@@ -100,10 +100,12 @@ def random_region_generated_dataset(input_grid):
             obj_ls.append((use_diamond,'diamond'))
         prompt = 'Create'
         for id,(num,key) in enumerate(obj_ls):
+            if (num>1):
+                key = key + 's'
             if (id == 0):
-                prompt = prompt + f' {num} {key}'
+                prompt = prompt + f' {num_dict[num]} {key}'
             else:
-                prompt = prompt + f' and {num} {key}'
+                prompt = prompt + f' and {num_dict[num]} {key}'
         prompt = prompt + f',{centerX-size},{centerY-size},{centerX+size},{centerY+size}'
         #-----------------------------------------------#
 
@@ -114,6 +116,7 @@ def random_region_generated_dataset(input_grid):
         if (tmp_grid is not None):
             grid[centerX-size:centerX+size+1,centerY-size:centerY+size+1] = tmp_grid
             return grid,prompt
+    return None, None
 
 def main(grid_size):
     create_dir(root)
@@ -127,9 +130,12 @@ def main(grid_size):
     for loop in range(len(num_sample)):
         list_file = glob.glob(f"{root}/{mode}/*.png")
         for time in trange(num_sample[loop]):
-            random_file = list_file[np.random.randint(0,len(list_file))]
-            grid = np.asarray(Image.open(random_file))
-            new_grid, prompt = random_region_generated_dataset(grid)
+            new_grid, prompt = None,None
+            random_file = None
+            while (new_grid is None):
+                random_file = list_file[np.random.randint(0,len(list_file))]
+                grid = np.asarray(Image.open(random_file))
+                new_grid, prompt = random_region_generated_dataset(grid)
             name = f'{current_id}'
             while len(name)<7:
                 name = '0'+name

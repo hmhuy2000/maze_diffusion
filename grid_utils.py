@@ -7,8 +7,18 @@ from tqdm import trange
 WALL_VALUE = 200
 MIN_ROOM_SIZE = 2
 MAX_ROOM_SIZE = 4
-MIN_REGION_SIZE = 4
-MAX_REGION_SIZE = 5 * (MAX_ROOM_SIZE - 1) -1
+
+num_dict = {
+    1:'one',
+    2:'two',
+    3:'three',
+    4:'four',
+    5:'five',
+    6:'six',
+    7:'seven',
+    8:'eight',
+    9:'nine',
+}
 
 def create_dir(name):
     try:
