@@ -7,6 +7,8 @@ from tqdm import trange
 WALL_VALUE = 200
 MIN_ROOM_SIZE = 2
 MAX_ROOM_SIZE = 4
+MIN_REGION_SIZE = 4
+MAX_REGION_SIZE = 5 * (MAX_ROOM_SIZE - 1) -1
 
 def create_dir(name):
     try:
@@ -14,57 +16,21 @@ def create_dir(name):
     except:
         print(f'warning: {name} existed!')
 
-def create_random_square_room(old_grid,size,Xmin,Ymin,Xmax,Ymax):
+def create_random_square_room(old_grid,old_mask,size):
     grid = deepcopy(old_grid)
+    mask = deepcopy(old_mask)
     (grid_size,grid_size) = grid.shape
     #---------------------------------------------------------#        
     posX,posY = None,None
     for _ in range(100):
-        tmp_posX = np.random.randint(Xmin+size,Xmax-size)
-        tmp_posY = np.random.randint(Ymin+size,Ymax-size)
+        tmp_posX = np.random.randint(size,grid_size-size)
+        tmp_posY = np.random.randint(size,grid_size-size)
         failed = False
         for x in range(grid_size):
             if (failed):
                 break
             for y in range(grid_size):
-                if (abs(x-tmp_posX)==size and abs(y-tmp_posY)<=size):
-                    if (grid[x,y] == WALL_VALUE):
-                        failed = True
-                        break
-                elif (abs(x-tmp_posX)<=size and abs(y-tmp_posY)==size):
-                    if (grid[x,y] == WALL_VALUE):
-                        failed = True
-                        break
-        if (not failed):
-            posX = tmp_posX
-            posY = tmp_posY
-            break
-    #---------------------------------------------------------#        
-    if (posY is None):
-        return None
-    #---------------------------------------------------------#        
-    for x in range(grid_size):
-        for y in range(grid_size):
-            if (abs(x-tmp_posX)==size and abs(y-tmp_posY)<=size):
-                grid[x,y] = WALL_VALUE
-            elif (abs(x-tmp_posX)<=size and abs(y-tmp_posY)==size):
-                grid[x,y] = WALL_VALUE
-    return grid
-
-def create_random_diamond_room(old_grid,size,Xmin,Ymin,Xmax,Ymax):
-    grid = deepcopy(old_grid)
-    (grid_size,grid_size) = grid.shape
-    #---------------------------------------------------------#        
-    posX,posY = None,None
-    for _ in range(100):
-        tmp_posX = np.random.randint(Xmin+size,Xmax-size)
-        tmp_posY = np.random.randint(Ymin+size,Ymax-size)
-        failed = False
-        for x in range(grid_size):
-            if (failed):
-                break
-            for y in range(grid_size):
-                if (abs(x-tmp_posX)+abs(y-tmp_posY)<=size and grid[x,y]==WALL_VALUE):
+                if (abs(x-tmp_posX)<=size and abs(y-tmp_posY)<=size and mask[x,y]):
                     failed = True
                     break
         if (not failed):
@@ -73,13 +39,50 @@ def create_random_diamond_room(old_grid,size,Xmin,Ymin,Xmax,Ymax):
             break
     #---------------------------------------------------------#        
     if (posY is None):
-        return None
+        return None,None
+    #---------------------------------------------------------#        
+    for x in range(grid_size):
+        for y in range(grid_size):
+            if (abs(x-posX)==size and abs(y-posY)<=size):
+                grid[x,y] = WALL_VALUE
+            if (abs(x-posX)<=size and abs(y-posY)==size):
+                grid[x,y] = WALL_VALUE
+            if (abs(x-posX)<=size+1 and abs(y-posY)<=size+1):
+                mask[x,y] = 1
+    return grid,mask
+
+def create_random_diamond_room(old_grid,old_mask,size):
+    grid = deepcopy(old_grid)
+    mask = deepcopy(old_mask)
+    (grid_size,grid_size) = grid.shape
+    #---------------------------------------------------------#        
+    posX,posY = None,None
+    for _ in range(100):
+        tmp_posX = np.random.randint(size,grid_size-size)
+        tmp_posY = np.random.randint(size,grid_size-size)
+        failed = False
+        for x in range(grid_size):
+            if (failed):
+                break
+            for y in range(grid_size):
+                if (abs(x-tmp_posX)+abs(y-tmp_posY)<=size and mask[x,y]):
+                    failed = True
+                    break
+        if (not failed):
+            posX = tmp_posX
+            posY = tmp_posY
+            break
+    #---------------------------------------------------------#        
+    if (posY is None):
+        return None,None
     #---------------------------------------------------------#        
     for x in range(grid_size):
         for y in range(grid_size):
             if (abs(x-posX)+abs(y-posY)==size):
                 grid[x,y] = WALL_VALUE
-    return grid
+            if (abs(x-posX)+abs(y-posY)<=size+1):
+                mask[x,y] = 1
+    return grid,mask
 
 def create_empty_grid(grid):
     grid[:,0:1] = WALL_VALUE

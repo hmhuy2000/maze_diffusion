@@ -4,6 +4,7 @@ import os
 import glob
 from copy import deepcopy
 from tqdm import trange
+import random
 
 import psutil
 print(f'Number of CPUs: {psutil.cpu_count()}')
@@ -24,11 +25,40 @@ mode = 'train_small'
 if (mode == 'train'):
     num_scale = 10
 if (mode == 'train_small'):
-    num_scale = 3
-mode = f'64_3step_region_{mode}'
+    num_scale = 4
+mode = f'easy_region_{mode}'
 num_sample = np.asarray([5000,10000,10000])*num_scale
 print(f'create dataset as {mode} with num_sample = {num_sample}')
 root = f'./dataset'
+
+def create_objects(grid,mask,square,diamond):
+    if (grid is None):
+        return None,None
+    if (square+diamond==0):
+        return grid,mask
+    tmp = []
+    use_square,use_diamond = 0,0
+    for _ in range(square):
+        tmp.append('square')
+    for _ in range(diamond):
+        tmp.append('diamond')
+    chosen = np.random.choice(tmp)
+    (grid_size,grid_size) = grid.shape
+    create_fn = None
+    if (chosen == 'diamond'):
+        create_fn = create_random_diamond_room
+        use_diamond = 1
+    if (chosen == 'square'):
+        create_fn = create_random_square_room
+        use_square = 1
+
+    for size in range(MIN_ROOM_SIZE,MAX_ROOM_SIZE+1)[::-1]:
+        tmp_grid,tmp_mask = create_fn(grid,mask,size)
+        return_grid,return_mask = create_objects(tmp_grid,tmp_mask,square-use_square,diamond-use_diamond)
+        if (return_grid is not None):    
+            return return_grid,return_mask
+
+    return None,None
 
 def save_grid(grid,id):
     name = f'{id}'
@@ -43,7 +73,7 @@ def random_region_generated_dataset(input_grid):
     grid = deepcopy(input_grid)
     (grid_size,grid_size) = grid.shape
     for trial_pos in range(100):
-        size = 8
+        size = np.random.randint(MIN_REGION_SIZE,MAX_REGION_SIZE+1)
         centerX = np.random.randint(size,grid_size-size)
         centerY = np.random.randint(size,grid_size-size)
         prompt = None
@@ -58,32 +88,32 @@ def random_region_generated_dataset(input_grid):
 
         if (failed):
             continue
-        num_room = np.random.randint(1,3+1)
-        valid_room_size = size
+        #-----------------------------------------------#
 
-        use_square = 0 #np.random.randint(0,100)%2==0
-        create_room_fn = None
+        num_room = np.random.randint(1,size//(MAX_ROOM_SIZE-1)+1)
+        use_square = np.random.randint(0,num_room+1)
+        use_diamond = num_room - use_square
+        obj_ls = []
         if (use_square):
-            create_room_fn = create_random_square_room
-            prompt = f'create {num_room} square,{centerX-size},{centerY-size},{centerX+size},{centerY+size}'
-        else:
-            create_room_fn = create_random_diamond_room
-            prompt = f'create {num_room} diamond,{centerX-size},{centerY-size},{centerX+size},{centerY+size}'
+            obj_ls.append((use_square,'square'))
+        if (use_diamond):
+            obj_ls.append((use_diamond,'diamond'))
+        prompt = 'Create'
+        for id,(num,key) in enumerate(obj_ls):
+            if (id == 0):
+                prompt = prompt + f' {num} {key}'
+            else:
+                prompt = prompt + f' and {num} {key}'
+        prompt = prompt + f',{centerX-size},{centerY-size},{centerX+size},{centerY+size}'
+        #-----------------------------------------------#
 
-        for id in range(num_room):
-            for trial_room_place in range(100):
-                room_size = np.random.randint(MIN_ROOM_SIZE,min(MAX_ROOM_SIZE,valid_room_size - (num_room-id-1)*MIN_ROOM_SIZE)+1)
-                tmp_grid = None
-                tmp_grid = create_room_fn(grid,room_size,
-                                centerX-size,centerY-size,
-                                centerX+size,centerY+size)
-
-                if (tmp_grid is not None):
-                    valid_room_size -= room_size
-                    grid = tmp_grid
-                    break
-
-        return grid,prompt
+        tmp_grid,tmp_mask = create_objects(grid=grid[centerX-size:centerX+size+1,centerY-size:centerY+size+1],
+                                  mask=np.zeros(grid[centerX-size:centerX+size+1,centerY-size:centerY+size+1].shape),
+                                  square=use_square,diamond=use_diamond)
+        
+        if (tmp_grid is not None):
+            grid[centerX-size:centerX+size+1,centerY-size:centerY+size+1] = tmp_grid
+            return grid,prompt
 
 def main(grid_size):
     create_dir(root)

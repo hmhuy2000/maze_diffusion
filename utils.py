@@ -53,8 +53,8 @@ def forward_diffusion_sample(x_0,t,Xmins,Ymins,Xmaxs,Ymaxs, device="cpu"):
     + sqrt_one_minus_alphas_cumprod_t.to(device) * noise.to(device), noise.to(device)
 
 # Define beta schedule
-T = 350
-betas = linear_beta_schedule(timesteps=T,start=1e-4,end=1e-2)
+T = 1000
+betas = linear_beta_schedule(timesteps=T,start=1e-4,end=2e-2)
 # T = 300
 # betas = linear_beta_schedule(timesteps=T,start=1e-3,end=3e-2)
 # Pre-calculate different terms for closed form
@@ -69,7 +69,7 @@ posterior_variance = betas * (1. - alphas_cumprod_prev) / (1. - alphas_cumprod)
 IMG_SIZE = 64
 scale_img = 2
 IMG_SIZE = IMG_SIZE*scale_img
-BATCH_SIZE = 128
+BATCH_SIZE = 64
 
 class grid_dataset(Dataset):
 

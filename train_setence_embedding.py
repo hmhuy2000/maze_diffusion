@@ -1,29 +1,12 @@
 import psutil
 print(f'Number of CPUs: {psutil.cpu_count()}')
 p = psutil.Process()
-arr_cpus = [i for i in range(50,60)]
+arr_cpus = [i for i in range(80,96)]
 p.cpu_affinity(arr_cpus)
 print(f'CPU pool after assignment ({len(arr_cpus)}): {p.cpu_affinity()}')
 import warnings
 warnings.filterwarnings("ignore")
 
-comd = [
-    'Add a room in the top left with size 2',
-    'Add a room in the top left with size 3',
-    'Add a room in the top left with size 4',
-
-    'Add a room in the top right with size 2',
-    'Add a room in the top right with size 3',
-    'Add a room in the top right with size 4',
-
-    'Add a room in the bottom left with size 2',
-    'Add a room in the bottom left with size 3',
-    'Add a room in the bottom left with size 4',
-
-    'Add a room in the bottom right with size 2',
-    'Add a room in the bottom right with size 3',
-    'Add a room in the bottom right with size 4',
-]
 def create_dir(name):
     try:
         os.mkdir(name)
@@ -39,22 +22,31 @@ from sentence_transformers import SentenceTransformer
 from utils import *
 import seaborn as sns
 #------------------------------------------------------------------#
+
+import wandb
+wandb.init(project='maze_diffusion', settings=wandb.Settings(_disable_stats=True), \
+        group='2_input_sentence', name='0', entity='hmhuy')
+#------------------------------------------------------------------#
+reverse_transforms = transforms.Compose([
+        transforms.Lambda(lambda t: (t + 1) / 2),
+        transforms.Lambda(lambda t: t.permute(1, 2, 0)), # CHW to HWC
+        transforms.Lambda(lambda t: t * 255.),
+        transforms.Lambda(lambda t: t.numpy().astype(np.uint8)),
+        transforms.ToPILImage(),
+    ])
+
+#------------------------------------------------------------------#
 class Block(nn.Module):
-    def __init__(self, in_ch, out_ch, up=False,prev_down=False,prev_up=False):
+    def __init__(self, in_ch, out_ch, up=False,prev=False):
         super().__init__()
-        self.text_emb_out_dim = 384   #TODO
+        self.text_emb_out_dim = 384
         if up:
             intput_dim = in_ch
-            if (not prev_up):
-                intput_dim *= 3
-            else:
-                intput_dim *= 2
+            intput_dim *= 2
             self.conv1 = nn.Conv2d(intput_dim, out_ch, 3, padding=1)
             self.transform = nn.ConvTranspose2d(out_ch, out_ch, 4, 2, 1)
         else:
             intput_dim = in_ch
-            if (not prev_down):
-                intput_dim *= 2
             self.conv1 = nn.Conv2d(intput_dim, out_ch, 3, padding=1)
             self.transform = nn.Conv2d(out_ch, out_ch, 4, 2, 1)
 
@@ -64,20 +56,15 @@ class Block(nn.Module):
         self.relu  = nn.ReLU()
         
     def forward(self, x):
-
         # First Conv
         h = self.bnorm1(self.relu(self.conv1(x)))
-
         # Second Conv
         h = self.bnorm2(self.relu(self.conv2(h)))
         # Down or Upsample
         return self.transform(h)
 
 
-class SimpleUnet(nn.Module):
-    """
-    A simplified variant of the Unet architecture.
-    """
+class Unet(nn.Module):
     def __init__(self,device):
         super().__init__()
         self.device = device
@@ -85,77 +72,74 @@ class SimpleUnet(nn.Module):
         down_channels = (64,128,256,512,1024)
         up_channels = (1024,512,256,128, 64)
         out_dim = 1
-
+        text_emb_dim = 384
+        
         # Initial projection
         self.conv0 = nn.Conv2d(image_channels, down_channels[0], 3, padding=1)
-        self.prev_conv0 = nn.Conv2d(image_channels, down_channels[0], 3, padding=1)
-
-        self.prev_downs = nn.ModuleList([Block(down_channels[i], down_channels[i+1], \
-                                    prev_down=True) \
+        # Downsample
+        self.downs = nn.ModuleList([Block(down_channels[i], down_channels[i+1], ) \
                     for i in range(len(down_channels)-1)])
-
-        self.prev_ups = nn.ModuleList([Block(up_channels[i], up_channels[i+1], \
-                                 up=True,prev_up=True) \
-            for i in range(len(up_channels)-1)])
-
-        self.downs = nn.ModuleList([Block(down_channels[i], down_channels[i+1]) \
-                    for i in range(len(down_channels)-1)])
+        # Upsample
         self.ups = nn.ModuleList([Block(up_channels[i], up_channels[i+1], up=True) \
                     for i in range(len(up_channels)-1)])
-
+        
         self.output = nn.Conv2d(up_channels[-1], out_dim, 1)
-        self.last_ln = nn.Linear(2304, 384)
+        self.last_ln = nn.Linear(IMG_SIZE*IMG_SIZE, text_emb_dim)
         self.relu = nn.ReLU()
 
-    def forward(self,prev, x):
+    def forward(self, x):
         # Initial conv
         x = self.conv0(x)
-        prev = self.prev_conv0(prev)
 
         # Unet
         residual_inputs = []
-        prev_residual_inputs = []
-        for (down,prev_down) in zip(self.downs,self.prev_downs):
-            x = torch.cat((x, prev), dim=1)   
+        for down in self.downs:
             x = down(x)
-            prev = prev_down(prev)
             residual_inputs.append(x)
-            prev_residual_inputs.append(prev)
 
-
-        for (up,prev_up) in zip(self.ups,self.prev_ups):
+        for up in self.ups:
             residual_x = residual_inputs.pop()
-            prev_residual_x = prev_residual_inputs.pop()
-            x = torch.cat((x, residual_x,prev), dim=1)           
+            x = torch.cat((x, residual_x), dim=1)           
             x = up(x)
-            prev = torch.cat((prev,prev_residual_x),dim=1)
-            prev = prev_up(prev)
 
         x = self.output(x).flatten(1)
         x = self.last_ln(self.relu(x))
         return x
 
+
 class total_model(nn.Module):
     def __init__(self,device):
         super().__init__()
         self.text_model = SentenceTransformer('all-MiniLM-L6-v2')
-        self.image_model = SimpleUnet(device=device)
+        self.image_model = Unet(device=device)
         print(sum(p.numel() for p in self.text_model.parameters() if p.requires_grad))
         print(sum(p.numel() for p in self.image_model.parameters() if p.requires_grad))
 
 #------------------------------------------------------------------#
 
 def main():
+    train_root_dir = './dataset/easy_region_train_small'
+    valid_root_dir = './dataset/easy_region_test'
+    train_csv = './dataset/dataset_easy_region_train_small.csv'
+    valid_csv = './dataset/dataset_easy_region_test.csv'
+    comd = []
+    for line in tqdm(open(train_csv,'r').readlines()):
+        comd.append(line.split(',')[1])
+    comd = list(set(comd))
+    comd.sort()
+    print('list promts = ',comd)
+
     device = "cuda" if torch.cuda.is_available() else "cpu"
     num_epochs = 1000
-    exp_name = '2_step_setence_embedding'
+    exp_name = 'more_sentence'
     figure_path = './figures'
     pretrained_path = './pretrained'
     log_path = './logs'
     create_dir(f'{figure_path}/{exp_name}')
     create_dir(f'{pretrained_path}/{exp_name}')
-    data_train = load_transformed_dataset(root_dir='./dataset/2_step_train',csv_file='./dataset/dataset_2_step_train.csv')
-    data_valid = load_transformed_dataset(root_dir='./dataset/2_step_test',csv_file='./dataset/dataset_2_step_test.csv')
+    data_train = load_transformed_dataset(root_dir=train_root_dir,csv_file=train_csv)
+    # data_train = load_transformed_dataset(root_dir=valid_root_dir,csv_file=valid_csv)
+    data_valid = load_transformed_dataset(root_dir=valid_root_dir,csv_file=valid_csv)
     print(f'train dataset have {data_train.__len__()} samples')
     print(f'valid dataset have {data_valid.__len__()} samples')
     model = total_model(device=device)
@@ -167,20 +151,17 @@ def main():
     log_file = open(f'{log_path}/{exp_name}_logs.csv','a')
 
     best_loss = np.inf
-
+    train_loss = []
     for epoch in range(num_epochs):
-        pbar = tqdm(enumerate(train_dataloader))
+        pbar = tqdm(enumerate(train_dataloader), total=data_train.__len__()//BATCH_SIZE)
         for step, batch in pbar:
             optimizer.zero_grad()
-
-            prevs,promts,images,text = batch
-            prevs = prevs.cuda()
-            images = images.cuda()
+            prevs,promts,images,Xmins,Ymins,Xmaxs,Ymaxs = batch
+            images = (images-prevs).cuda()
             num_data = len(promts)
 
             text_embedding = model.text_model.get_embedding(promts,device)
-            images_embedding = model.image_model(prevs,images)
-
+            images_embedding = model.image_model(images)
             input1 = []
             input2 = []
             labels = []
@@ -199,33 +180,32 @@ def main():
 
             cosine_loss = F.cosine_embedding_loss(input1,input2,labels)
             mse_loss = F.mse_loss(text_embedding, images_embedding)
-            l1_loss = F.l1_loss(text_embedding, images_embedding)
 
             loss = (
                 mse_loss+
                 cosine_loss
             )
+            train_loss.append(loss.item())
             loss.backward()
             optimizer.step()
             if (step %10 == 0):
                 pbar.set_description(f'[train] epoch = {epoch}, train params = {sum(p.numel() for p in model.parameters() if p.requires_grad)},'+
-            f'cosine_loss = {cosine_loss.item():.7f}, l1_loss = {l1_loss.item():.7f}, mse_loss = {mse_loss.item():.7f}, total_loss = {loss.item():.7f}')
+            f'cosine_loss = {cosine_loss.item():.7f}, mse_loss = {mse_loss.item():.7f}, total_loss = {np.mean(train_loss):.7f}')
 
         total_eval = []
         total_cosine = []
-        total_l1 = []
         total_mse = []
         model.eval()
         log = None
         with torch.no_grad():
-            pbar = tqdm(enumerate(valid_dataloader))
+            pbar = tqdm(enumerate(valid_dataloader), total=data_valid.__len__()//BATCH_SIZE)
             for step, batch in pbar:
-                prevs,promts,images,text = batch
-                prevs = prevs.cuda()
-                images = images.cuda()
+                prevs,promts,images,Xmins,Ymins,Xmaxs,Ymaxs = batch
+                images = (images-prevs).cuda()
                 num_data = len(promts)
+
                 text_embedding = model.text_model.get_embedding(promts,device)
-                images_embedding = model.image_model(prevs,images)
+                images_embedding = model.image_model(images)
 
                 input1 = []
                 input2 = []
@@ -245,20 +225,23 @@ def main():
 
                 cosine_loss = F.cosine_embedding_loss(input1,input2,labels)
                 mse_loss = F.mse_loss(text_embedding, images_embedding)
-                l1_loss = F.l1_loss(text_embedding, images_embedding)
 
                 loss = (
                     mse_loss+
                     cosine_loss
                 )
                 total_eval.append(loss.item())
-                total_l1.append(l1_loss.item())
                 total_mse.append(mse_loss.item())
                 total_cosine.append(cosine_loss.item())
-                log = f'[valid] epoch = {epoch} cosine_loss = {np.mean(total_cosine):.7f}, l1_loss = {np.mean(total_l1):.7f}, mse_loss = {np.mean(total_mse):.7f}, total_loss = {np.mean(total_eval):.7f}'
+                log = f'[valid] epoch = {epoch} cosine_loss = {np.mean(total_cosine):.7f}, mse_loss = {np.mean(total_mse):.7f}, total_loss = {np.mean(total_eval):.7f}'
                 if (step%10 == 0):
                     pbar.set_description(log)
-            
+            wandb.log({
+                'sentence_loss/train_loss':np.mean(train_loss),
+                'sentence_loss/valid_loss':np.mean(total_eval),
+                'sentence_loss/valid_mse_loss':np.mean(total_mse),
+                'sentence_loss/valid_cosine_loss':np.mean(total_cosine),
+                       },step = epoch)
             guidance_embedding = model.text_model.get_embedding(comd,device)
             cosine_table = np.zeros((len(comd),len(comd)))
             for i in range(len(comd)):
@@ -272,6 +255,7 @@ def main():
             heatmap = sns.heatmap(cosine_table,vmin=0.0,vmax=1.0,annot=True,fmt='.2f')
             create_dir(f'{figure_path}/{exp_name}/result_{epoch}')
             heatmap.figure.savefig(f'{figure_path}/{exp_name}/result_{epoch}/cosine_result.png')
+            wandb.log({"heatmap":wandb.Image(Image.open(f'{figure_path}/{exp_name}/result_{epoch}/cosine_result.png'))},step=epoch)
         
         log_file.write(f'{log}\n')
         log_file.flush()
