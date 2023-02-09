@@ -25,7 +25,7 @@ def create_dir(name):
         print(f'warning: {name} existed!')
 #-------------------------------------------------------#
 from utils import *
-from unet import *
+from new_unet import *
 #-------------------------------------------------------#
 
 reverse_transforms = transforms.Compose([
@@ -37,10 +37,11 @@ reverse_transforms = transforms.Compose([
     ])
 
 #-------------------------------------------------------#
-exp_name = 'square_region'
+exp_name = 'new_unet_square_region'
 figure_path = f'figures/{exp_name}'
 pretrained_path = f'pretrained/{exp_name}'
 data_train = load_transformed_dataset(root_dir='./dataset/square_region_train',csv_file='./dataset/dataset_square_region_train.csv')
+# data_train = load_transformed_dataset(root_dir='./dataset/square_region_test',csv_file='./dataset/dataset_square_region_test.csv')
 data_valid = load_transformed_dataset(root_dir='./dataset/square_region_test',csv_file='./dataset/dataset_square_region_test.csv')
 print(f'train dataset have {data_train.__len__()} samples')
 print(f'valid dataset have {data_valid.__len__()} samples')
@@ -48,10 +49,6 @@ dataloader = DataLoader(data_train, batch_size=BATCH_SIZE, shuffle=True, drop_la
 valid_dataloader = DataLoader(data_valid, batch_size=BATCH_SIZE,shuffle=True, drop_last=True)
 device = "cuda" if torch.cuda.is_available() else "cpu"
 epochs = 1000
-#-------------------------------------------------------#
-import wandb
-wandb.init(project='maze_diffusion', settings=wandb.Settings(_disable_stats=True), \
-        group=exp_name, name='0', entity='hmhuy')
 #-------------------------------------------------------#
 
 # prev,promt,image,Xmin,Ymin,Xmax,Ymax = next(iter(dataloader))
@@ -96,29 +93,33 @@ wandb.init(project='maze_diffusion', settings=wandb.Settings(_disable_stats=True
 #-------------------------------------------------------#
 
 log_file = open(f"logs/{exp_name}.csv", "a")
-log_file.write('epoch,learning_rate,train_loss,valid_loss,valid_no_guidance_loss,guidance_lower,trainning_param\n')
+log_file.write('epoch,learning_rate,train_loss,valid_ema_loss,valid_loss,valid_no_guidance_loss,guidance_lower,trainning_param\n')
 create_dir(figure_path)
 create_dir(pretrained_path)
 #-------------------------------------------------------#
-model = SimpleUnet(device=device)
-print(f'total model parameter: {sum(p.numel() for p in model.parameters())}')
+model = UNet_conditional(c_in=1,c_out=1,device=device)
 #-------------------------------------------------------#
 start_epoch = 0
 
-pretrained = './pretrained/square_region/5.pt'
+pretrained = './pretrained/new_unet_square_region/0.pt'
 start_epoch = int(pretrained.split('/')[-1].split('.')[0])+1
 print(f'load pretrained from {pretrained}')
 model.load_state_dict(torch.load(pretrained))
 
-# sentence_pretrained = './pretrained/square_sentence/valid_sentence_embedding_model.pt'
-# print(f'load sentence_embedding_model pretrained from {sentence_pretrained}')
-# model.text0.load_state_dict(torch.load(sentence_pretrained))
+sentence_pretrained = './pretrained/square_sentence/valid_sentence_embedding_model.pt'
+print(f'load sentence_embedding_model pretrained from {sentence_pretrained}')
+model.text.load_state_dict(torch.load(sentence_pretrained))
+#-------------------------------------------------------#
+
+ema_model = deepcopy(model).eval().requires_grad_(False)
+ema_class = EMA(0.995)
+print(f'total model parameter: {sum(p.numel() for p in model.parameters())}')
 #-------------------------------------------------------#
 
 def get_loss(model,prev, promt, image, t,Xmins,Ymins,Xmaxs,Ymaxs,render=False):
     x_0 = image - prev
     x_noisy, noise = forward_diffusion_sample(x_0, t, Xmins, Ymins, Xmaxs, Ymaxs, device)
-    noise_pred = model(prev,promt,x_noisy,t)
+    noise_pred = model(promt,x_noisy,t)
     if (render):
         wandb.log({
             "prev":wandb.Image(reverse_transforms(prev[0].cpu())),
@@ -145,7 +146,7 @@ def sample_timestep(prev,promt,x, t,Xmin,Ymin,Xmax,Ymax):
     
     # Call model (current image - noise prediction)
     model_mean = sqrt_recip_alphas_t * (
-        x - betas_t * model(prev,promt,x, t) / sqrt_one_minus_alphas_cumprod_t
+        x - betas_t * ema_model(promt,x, t) / sqrt_one_minus_alphas_cumprod_t
     )
     posterior_variance_t = get_index_from_list(posterior_variance, t, x.shape)
     if t == 0:
@@ -158,7 +159,6 @@ def sample_timestep(prev,promt,x, t,Xmin,Ymin,Xmax,Ymax):
 @torch.no_grad()
 def sample_plot_image(epoch, prev,promt,image,Xmins,Ymins,Xmaxs,Ymaxs):
     # Sample noise
-    img_size = IMG_SIZE
     for idx in range(5):
         Xmin,Ymin,Xmax,Ymax = Xmins[idx],Ymins[idx],Xmaxs[idx],Ymaxs[idx]
         noise = torch.zeros_like(prev[idx])
@@ -187,13 +187,18 @@ def sample_plot_image(epoch, prev,promt,image,Xmins,Ymins,Xmaxs,Ymaxs):
             f"result_{idx}":wandb.Image(Image.open(f'{figure_path}/result_{epoch}/{idx}.png')),
                    },step=epoch) 
 
+#-------------------------------------------------------#
+import wandb
+wandb.init(project='maze_diffusion', settings=wandb.Settings(_disable_stats=True), \
+        group=exp_name, name='0', entity='hmhuy')
 
 #-------------------------------------------------------#
 init_learning_rate = 0.001
 model.to(device)
+ema_model.to(device)
 optimizer = Adam(model.parameters(), lr=init_learning_rate)
 print('freeze setence transformer')
-for param in model.text0.parameters():
+for param in model.text.parameters():
     param.requires_grad = False
 best_val_loss = np.inf
 for epoch in range(start_epoch,epochs):
@@ -204,11 +209,12 @@ for epoch in range(start_epoch,epochs):
     
     model.train()
     pbar = tqdm(enumerate(dataloader), total=data_train.__len__()//BATCH_SIZE)
-    if (epoch == 50):
+    if (epoch == 25):
         print('\nunfreeze setence transformer')
-        for param in model.text0.parameters():
+        for param in model.text.parameters():
             param.requires_grad = True
     total_train_loss = []
+    total_ema_train_loss = []
     for step, batch in pbar:
         prevs,promts,images,Xmins,Ymins,Xmaxs,Ymaxs = batch
         prevs = prevs.cuda()
@@ -217,17 +223,23 @@ for epoch in range(start_epoch,epochs):
         
         t = torch.randint(0, T, (BATCH_SIZE,), device=device).long()
         loss = get_loss(model,prevs,promts, images, t,Xmins,Ymins,Xmaxs,Ymaxs)
+        ema_loss = get_loss(ema_model,prevs,promts, images, t,Xmins,Ymins,Xmaxs,Ymaxs)
+
+        total_ema_train_loss.append(ema_loss.detach().item())
         total_train_loss.append(loss.detach().item())
         loss.backward()
         optimizer.step()
+        ema_class.step_ema(ema_model, model)
         if (step %10 == 0):
-            pbar.set_description(f'[Train] epoch = {epoch},num_param = {sum(p.numel() for p in model.parameters() if p.requires_grad)}, learning rate = {optimizer.param_groups[0]["lr"]:.5f}'+
-            f', loss = {np.mean(total_train_loss):.7f}')
+            pbar.set_description(f'[Train] epoch = {epoch},num_param = {sum(p.numel() for p in model.parameters() if p.requires_grad)},'+
+            f' learning rate = {optimizer.param_groups[0]["lr"]:.5f}'+
+            f', loss = {np.mean(total_train_loss):.5f}, ema_loss = {np.mean(total_ema_train_loss):.5f}')
     #---------------------------------#
 
     model.eval()
     pbar = tqdm(enumerate(valid_dataloader), total=data_valid.__len__()//BATCH_SIZE)
     total_valid_loss = []
+    total_valid_ema_loss = []
     total_valid_guidance_free = []
     prevs,promts,images,Xmins,Ymins,Xmaxs,Ymaxs = None,None,None,None,None,None,None
     with torch.no_grad():
@@ -236,26 +248,33 @@ for epoch in range(start_epoch,epochs):
             prevs = prevs.cuda()
             images = images.cuda()
             t = torch.randint(0, T, (BATCH_SIZE,), device=device).long()
+
             loss = get_loss(model,prevs,promts, images, t,Xmins,Ymins,Xmaxs,Ymaxs)
+            loss_ema = get_loss(ema_model,prevs,promts, images, t,Xmins,Ymins,Xmaxs,Ymaxs)
             guidance_free_loss = get_loss(model,prevs,['' for _ in range(len(promts))], images, t,Xmins,Ymins,Xmaxs,Ymaxs)
+
             total_valid_loss.append(loss.detach().item())
+            total_valid_ema_loss.append(loss_ema.detach().item())
             total_valid_guidance_free.append(guidance_free_loss.detach().item())
+
             if (step %10 == 0):
-                pbar.set_description(f'[Valid] epoch = {epoch}'+
-                f', loss = {np.mean(total_valid_loss):.7f}, guidance-free loss = {np.mean(total_valid_guidance_free):.7f},'+
-                f'guidance lower = {-np.mean(total_valid_loss)+np.mean(total_valid_guidance_free)}')
+                pbar.set_description(f'[Valid] epoch={epoch},'+
+                f'loss_ema={np.mean(total_valid_ema_loss):.5f},'+
+                f'loss={np.mean(total_valid_loss):.5f},guidance-free loss={np.mean(total_valid_guidance_free):.5f},'+
+                f'guidance better = {-np.mean(total_valid_loss)+np.mean(total_valid_guidance_free):.5f}')
     #---------------------------------#
     wandb.log({'loss/train__loss':np.mean(total_train_loss)},step = epoch)
     wandb.log({'loss/valid_loss':np.mean(total_valid_loss)},step = epoch)
+    wandb.log({'loss/valid_ema_loss':np.mean(total_valid_ema_loss)},step = epoch)
     wandb.log({'loss/valid_no_guidance_loss':np.mean(total_valid_guidance_free)},step = epoch)
-    log_file.write(f'{epoch},{optimizer.param_groups[0]["lr"]:.5f},{np.mean(total_train_loss):.7f},{np.mean(total_valid_loss):.7f},{np.mean(total_valid_guidance_free):.7f},'+
-    f'{-np.mean(total_valid_loss)+np.mean(total_valid_guidance_free):.7f},{sum(p.numel() for p in model.parameters() if p.requires_grad)}\n')
+    log_file.write(f'{epoch},{optimizer.param_groups[0]["lr"]:.5f},{np.mean(total_train_loss):.5f},{np.mean(total_valid_ema_loss):.5f},{np.mean(total_valid_loss):.5f},{np.mean(total_valid_guidance_free):.5f},'+
+    f'{-np.mean(total_valid_loss)+np.mean(total_valid_guidance_free):.5f},{sum(p.numel() for p in model.parameters() if p.requires_grad)}\n')
     log_file.flush()      
-    if (np.mean(total_valid_loss)<best_val_loss):
-        best_val_loss = np.mean(total_valid_loss)
-        print(f'new best valid loss: {best_val_loss:.7f}')
+    if (np.mean(total_valid_ema_loss)<best_val_loss):
+        best_val_loss = np.mean(total_valid_ema_loss)
+        print(f'new best valid loss: {best_val_loss:.5f}')
         save_path = f'{pretrained_path}/{epoch}.pt'
-        torch.save(model.state_dict(), save_path)
+        torch.save(ema_model.state_dict(), save_path)
     create_dir(f'{figure_path}/result_{epoch}')
     sample_plot_image(epoch,prevs,promts,images,Xmins,Ymins,Xmaxs,Ymaxs)
     

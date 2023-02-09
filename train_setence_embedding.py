@@ -24,8 +24,6 @@ import seaborn as sns
 #------------------------------------------------------------------#
 
 import wandb
-wandb.init(project='maze_diffusion', settings=wandb.Settings(_disable_stats=True), \
-        group='mask_prediction_sentence', name='0', entity='hmhuy')
 #------------------------------------------------------------------#
 reverse_transforms = transforms.Compose([
         transforms.Lambda(lambda t: (t + 1) / 2),
@@ -131,7 +129,10 @@ def main():
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     num_epochs = 1000
-    exp_name = 'mask_prediction_sentence'
+    exp_name = 'mix_sentence'
+    wandb.init(project='maze_diffusion', settings=wandb.Settings(_disable_stats=True), \
+        group=exp_name, name='0', entity='hmhuy')
+    
     figure_path = './figures'
     pretrained_path = './pretrained'
     log_path = './logs'
@@ -171,6 +172,7 @@ def main():
                 reverse_transforms(prevs[0].cpu()).save('tmp/prev.png')
                 reverse_transforms(images[0].cpu()).save('tmp/image.png')
                 reverse_transforms((images[0]-prevs[0]).cpu()).save('tmp/target.png')
+                print(promts[0],(images[0]-prevs[0]).mean().item(),(images[0]-prevs[0]).max().item(),(images[0]-prevs[0]).min().item())
             images = (images-prevs).cuda()
             num_data = len(promts)
 

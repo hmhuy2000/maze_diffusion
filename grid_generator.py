@@ -21,7 +21,7 @@ from grid_utils import *
 num_scale = 1
 mode = 'train_small'
 mode = 'train'
-mode = 'test'
+# mode = 'test'
 if (mode == 'train'):
     num_scale = 10
 if (mode == 'train_small'):

@@ -7,6 +7,7 @@ from torch.utils.data import DataLoader, Dataset
 import numpy as np
 import os
 from PIL import Image
+import math
 
 import cv2
 
@@ -20,8 +21,22 @@ def show_images(datset, num_samples=20, cols=4):
         plt.imshow(np.asarray(img))
     plt.savefig('figures/show_images.jpg')
 
+def betas_for_alpha_bar(num_diffusion_timesteps, alpha_bar, max_beta=0.999):
+    betas = []
+    for i in range(num_diffusion_timesteps):
+        t1 = i / num_diffusion_timesteps
+        t2 = (i + 1) / num_diffusion_timesteps
+        betas.append(min(1 - alpha_bar(t2) / alpha_bar(t1), max_beta))
+    return np.array(betas)
+
 def linear_beta_schedule(timesteps, start=0.0001, end=0.02):
     return torch.linspace(start, end, timesteps)
+
+def cosine_beta_schedule(num_diffusion_timesteps):
+    return torch.tensor(betas_for_alpha_bar(
+            num_diffusion_timesteps,
+            lambda t: math.cos((t + 0.008) / 1.008 * math.pi / 2) ** 2,
+        )).float()
 
 def get_index_from_list(vals, t, x_shape):
     """ 
@@ -49,14 +64,15 @@ def forward_diffusion_sample(x_0,t,Xmins,Ymins,Xmaxs,Ymaxs, device="cpu"):
         sqrt_one_minus_alphas_cumprod, t, x_0.shape
     )
     # mean + variance
+    # print(sqrt_alphas_cumprod_t[0],sqrt_one_minus_alphas_cumprod_t[0])
     return sqrt_alphas_cumprod_t.to(device) * x_0.to(device) \
     + sqrt_one_minus_alphas_cumprod_t.to(device) * noise.to(device), noise.to(device)
 
 # Define beta schedule
 T = 1000
-betas = linear_beta_schedule(timesteps=T,start=1e-4,end=2e-2)
-# T = 300
-# betas = linear_beta_schedule(timesteps=T,start=1e-3,end=3e-2)
+# betas = linear_beta_schedule(timesteps=T,start=1e-6,end=1e-2)
+betas = cosine_beta_schedule(T)
+
 # Pre-calculate different terms for closed form
 alphas = 1. - betas
 alphas_cumprod = torch.cumprod(alphas, axis=0)
@@ -67,9 +83,9 @@ sqrt_one_minus_alphas_cumprod = torch.sqrt(1. - alphas_cumprod)
 posterior_variance = betas * (1. - alphas_cumprod_prev) / (1. - alphas_cumprod)
 
 IMG_SIZE = 64
-scale_img = 2
+scale_img = 1
 IMG_SIZE = IMG_SIZE*scale_img
-BATCH_SIZE = 64
+BATCH_SIZE = 12
 
 class grid_dataset(Dataset):
 

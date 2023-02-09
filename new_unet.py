@@ -2,6 +2,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from sentence_transformers import SentenceTransformer
 
 def one_param(m):
     "get model first parameter"
@@ -133,21 +134,26 @@ class UNet(nn.Module):
         super().__init__()
         self.time_dim = time_dim
         self.inc = DoubleConv(c_in, 64)
-        self.down1 = Down(64, 128)
+        self.down1 = Down(64, 128,emb_dim=time_dim)
         self.sa1 = SelfAttention(128)
-        self.down2 = Down(128, 256)
+        self.down2 = Down(128, 256,emb_dim=time_dim)
         self.sa2 = SelfAttention(256)
-        self.down3 = Down(256, 256)
+        self.down3 = Down(256, 256,emb_dim=time_dim)
         self.sa3 = SelfAttention(256)
 
+        # self.bot1 = DoubleConv(256, 512)
+        # self.bot2 = DoubleConv(512, 512)
+        # self.bot3 = DoubleConv(512, 256)
+
         self.bot1 = DoubleConv(256, 256)
+        # self.bot2 = DoubleConv(512, )
         self.bot3 = DoubleConv(256, 256)
 
-        self.up1 = Up(512, 128)
+        self.up1 = Up(512, 128,emb_dim=time_dim)
         self.sa4 = SelfAttention(128)
-        self.up2 = Up(256, 64)
+        self.up2 = Up(256, 64,emb_dim=time_dim)
         self.sa5 = SelfAttention(64)
-        self.up3 = Up(128, 64)
+        self.up3 = Up(128, 64,emb_dim=time_dim)
         self.sa6 = SelfAttention(64)
         self.outc = nn.Conv2d(64, c_out, kernel_size=1)
 
@@ -190,16 +196,14 @@ class UNet(nn.Module):
 
 
 class UNet_conditional(UNet):
-    def __init__(self, c_in=3, c_out=3, time_dim=256, num_classes=None):
+    def __init__(self, c_in=3, c_out=3, time_dim=384,device=None):
         super().__init__(c_in, c_out, time_dim)
-        if num_classes is not None:
-            self.label_emb = nn.Embedding(num_classes, time_dim)
+        self.device=device
+        self.text = SentenceTransformer('all-MiniLM-L6-v2')
 
-    def forward(self, x, t, y=None):
+    def forward(self,prompt, x, t):
         t = t.unsqueeze(-1)
         t = self.pos_encoding(t, self.time_dim)
-
-        if y is not None:
-            t += self.label_emb(y)
+        t += self.text.get_embedding(prompt,self.device)
 
         return self.unet_forwad(x, t)
